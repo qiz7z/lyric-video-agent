@@ -1,10 +1,11 @@
 # Lyric Video Agent
 
-**输入一首歌，Agent 自动完成：歌词获取 → 人声对轴 → AI 生成风景画面 → 视觉自检修复 → 合成成片。**
+**输入一首歌，Agent 自动完成：歌词获取 → 人声对轴（异常时自主修复）→ AI 生成风景画面 → 视觉自检修复 → 合成成片。**
 
-这是从 25 首实际交付抖音歌词视频的生产流水线中提炼出来的 Agent 项目：底层工具全部经过
-真实交付验证，Agent 层负责其中需要"判断力"的决策，并补上了人工流程里最大的断点——
-画面质检。
+![tests](https://github.com/YOUR_USERNAME/lyric-video-agent/actions/workflows/tests.yml/badge.svg)
+
+从 25 首实际交付抖音歌词视频的生产流水线提炼而来的 Agent 项目：底层工具全部经过真实交付
+验证，LLM 在三个决策点出场，并补上了人工流程里最大的断点——画面质检。
 
 ```
 听歌              对轴                        生画面            自检            成片
@@ -22,16 +23,18 @@
 - **真实生产背景**：不是玩具 demo。对齐算法、限流封装、续传逻辑全部来自 25 首已交付
   歌曲的实战迭代（对齐方案演进过 6 版），回归测试用人工逐行校验过的地面真值验证。
 - **混合式 Agent 架构**：确定性流水线骨架 + LLM 决策点，而不是 LLM 自由循环。
-  权衡分析见 [ARCHITECTURE.md](ARCHITECTURE.md)。
-- **真 function-calling 修复循环**：对齐走降级路由时，LLM 自主诊断报告、选择修复工具
-  （调分段参数 / 裁前奏）、根据执行观察决定下一步；质量门槛拒绝"路由升级但偏差劣化"
-  的候选并自动回退（《梦的光点》实测拦截 delta_max 15.1s 的劣化升级）。
-- **补上了人工流程最大断点**：过去"人物变形无法自动判定，只能用户终审"；
-  现在视觉模型逐帧质检 → 自动改写 prompt 重生成（≤2 轮修复循环）。
-- **记忆设计**：`policy/playbook.md`（长期策略，人工维护的领域 SOP）+
-  `memory/lessons.jsonl`（短期经验，每次运行自动追加，下次规划时注入）。
-- **工程细节**：API 限流退避（429/503/SSL 抖动）、CDN 断点续传（Range + ftyp 校验）、
-  NVENC 失败回退 libx264、全流程幂等可续跑、离线 MockLLM 测试模式。
+  权衡分析见 [ARCHITECTURE.md](ARCHITECTURE.md) §1。
+- **真 function-calling 修复循环**（ARCHITECTURE.md §4）：对齐走降级路由时，LLM 自主
+  诊断报告、选择修复工具、根据执行观察决定下一步；质量门槛拒绝"路由升级但偏差劣化"
+  的候选并自动回退——**E2E 实测拦截了一次 delta_max 15.1s 的劣化升级**。
+- **核心算法有量化结果**：DP 单调对齐（LRC 软锚点 + 单调性约束 + 噪声段罚金），
+  取代均匀量化方案（后者在回归中精确复现了历史上的"逐级漂移"事故）。
+- **补上人工流程最大断点**：过去"人物变形无法自动判定，只能用户终审"；现在视觉模型
+  逐帧质检 → 自动改写 prompt 重生成（≤2 轮修复循环）。
+- **双层记忆**：`policy/playbook.md`（长期策略：领域 SOP，规划时整篇注入）+
+  `memory/lessons.jsonl`（短期经验：每次运行自动沉淀，下次规划注入）。
+- **成本与可靠性工程**：API 限流退避（429/503/SSL 抖动）、CDN 断点续传（Range +
+  ftyp 校验）、NVENC 失败回退 libx264、全流程幂等可续跑、离线 MockLLM 测试模式。
 
 ## 对齐基准（已交付歌曲回归）
 
@@ -43,6 +46,31 @@
 
 复现：`.venv/Scripts/python tests/test_align.py`
 
+## 修复循环实测（真实歌曲，非演示）
+
+对齐走降级路由（56 段 vs 62 行）时，修复循环在《梦的光点》上的真实执行轨迹：
+
+```
+[repair] r1: re_align {'merge_gap': 0.22} -> sequential dmax=15.138
+         [REJECTED: delta_abs_max=15.138s 超过门槛 3.0s]   ← 系统自动回退
+[repair] r2: accept                                       ← LLM 读到拒绝观察后收手
+[repair] 最终 route=interp
+```
+
+教训与设计：把分段阈值调碎确实能让路由"升级"，但偏差被拉爆 6 倍——
+**路由升级 ≠ 质量提升**。所以候选必须通过 `delta_abs_max ≤ 3s` 且整体不劣化的门槛，
+拒绝原因回传给 LLM 并提示不要原样重试。
+
+## 无 key 降级矩阵（每个环节都可独立降级，不阻塞）
+
+| 缺失配置 | 行为 |
+|---|---|
+| 无 LLM key | 自动 mock 模式：规划用默认策略，全链路照常可跑（测试友好） |
+| 无视觉模型 | 跳过自动质检，明确提示人工终审 |
+| 无 demucs | 对齐降级全曲包络，报告标注（质量下降可见） |
+| 无 Agnes key | 只产出验证片，生片环节跳过 |
+| NVENC 不可用 | 自动回退 libx264 重编码 |
+
 ## 快速开始
 
 ```bash
@@ -53,15 +81,15 @@ python -m venv --system-site-packages .venv
 # 2. 配置 LLM（任何 OpenAI 兼容端点：DeepSeek / GLM / Qwen / OpenAI...）
 copy config.example.json config.json   # 填入 api_key；或用环境变量 LVA_LLM_API_KEY
 
-# 3. 先离线走一遍链路（MockLLM，不花一分钱）
-.venv/Scripts/python -m agent.cli "梦的光点" --audio "C:/path/梦的光点 - 王心凌.mp3" --mock --yes
+# 3. 先离线走一遍链路（MockLLM，不花一分钱，~25s）
+.venv/Scripts/python -m agent.cli "梦的光点" --audio "C:/path/梦的光点 - 王心凌.mp3" --mock --yes --skip-generate
 
 # 4. 正式运行（人工听感闸门在验证片之后，确认对齐才开始生片）
 .venv/Scripts/python -m agent.cli "梦的光点" --audio "C:/path/梦的光点 - 王心凌.mp3"
 ```
 
-没有 LLM key 也能跑：不配置时自动降级 mock 模式（规划用默认策略）。
-没有 demucs 也能跑：对齐自动降级全曲包络（质量下降，报告会标注）。
+常用选项：`--skip-generate` 跳过生片 / `--skip-qc` 跳过视觉质检 /
+`--skip-repair` 跳过修复循环 / `--trim 50` 裁掉 50s 前奏 / `--artist` 提高 LRCLib 命中率。
 
 ## 目录
 
@@ -69,9 +97,9 @@ copy config.example.json config.json   # 填入 api_key；或用环境变量 LVA
 agent/                 # Agent 层
   cli.py               #   命令行入口
   orchestrator.py      #   10 级流水线编排（含 3 个 LLM 决策点 + 人工闸门）
-  planner.py           #   [决策点1] 制作规划（LLM 生成 + 确定性校验）
+  planner.py           #   [决策点1] 制作规划（LLM 生成 + 确定性校验闭环）
   repair.py            #   [决策点2] function-calling 修复循环（诊断→选工具→质量门槛）
-  verifier.py          #   [决策点3] 视觉质检 + 修复循环
+  verifier.py          #   [决策点3] 视觉质检 + 重生成循环
   llm.py               #   OpenAI 兼容客户端 + MockLLM（离线测试）
   memory.py            #   playbook（长期策略）+ lessons（运行经验）
 tools/                 # 工具层（纯确定性函数，可独立单测）
@@ -97,8 +125,8 @@ runs/<歌名>/            # 每次运行的工作区（events/report/plan/成片
 |---|---|
 | `lyrics_raw.txt` | 歌词（秒↔文本，已过滤脏数据） |
 | `plan.json` | Agent 制作计划（主题/意象流/字体/段数） |
-| `events.json` + `report.json` | 逐句字幕时间轴 + 对齐质量报告 |
-| `<歌名>_字幕验证版.mp4` | 黑底白字验证片（人工听感闸门） |
+| `events.json` + `report.json` | 逐句字幕时间轴 + 对齐质量报告（含修复决策历史） |
+| `<歌名>_字幕验证版.mp4` | 黑底白字验证片（人工听感闸门，≈11MB/3.5min歌） |
 | `clips/clip01..N.mp4` | AI 生成的风景片段 |
 | `<歌名>_歌词视频.mp4` | 正式成片（1080p，烧录字幕 + 原曲立体声） |
 | `run_report.json` | 本次运行完整报告 |
@@ -110,3 +138,12 @@ runs/<歌名>/            # 每次运行的工作区（events/report/plan/成片
 .venv/Scripts/python tests/test_align.py         # 对齐回归（寂寞沙洲冷地面真值）
 .venv/Scripts/python tests/test_orchestrator.py  # ASS/规划/修复循环/NVENC合成小样
 ```
+
+数据依赖型测试使用已交付歌曲的本机文件，缺失时自动 SKIP——CI（GitHub Actions）
+上跑纯离线部分。
+
+## 设计文档
+
+[ARCHITECTURE.md](ARCHITECTURE.md) 覆盖：为什么不用 LLM 自由循环、规划器生成-校验闭环、
+DP 对齐算法与三路路由、修复循环与质量门槛、视觉质检、成本/可靠性工程、记忆设计、
+以及诚实的[已知边界](ARCHITECTURE.md#9-已知边界诚实声明)。
