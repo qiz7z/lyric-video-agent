@@ -1,0 +1,16 @@
+{
+  "llm": {
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-...",
+    "model": "deepseek-chat"
+  },
+  "vision": {
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-...",
+    "model": "deepseek-vl2"
+  },
+  "agnes": {
+    "api_key": "从 api-key.txt 或环境变量 LVA_AGNES_API_KEY 提供",
+    "proxies": null
+  }
+}

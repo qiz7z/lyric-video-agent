@@ -1,0 +1,4 @@
+# 可选：人声分离（对齐质量最好的一档）。装不上也不影响其余功能，
+# audio.separate_vocals() 会优雅降级并用全曲包络对齐。
+# 若已装 torch，建议用 --system-site-packages 建 venv 复用，避免重复下载几个 G。
+demucs>=4.0

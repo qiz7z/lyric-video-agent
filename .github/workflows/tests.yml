@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Offline unit tests
+        # 数据依赖型测试（test_align 的本地人声/真值、test_orchestrator 的
+        # NVENC 合成小样）在本机上跑才有数据，CI 缺数据时脚本自动 SKIP。
+        run: |
+          python tests/test_orchestrator.py
+          python tests/test_lyrics.py
+          python tests/test_align.py

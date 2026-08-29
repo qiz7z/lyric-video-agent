@@ -1,0 +1,14 @@
+# 密钥与私有配置
+config.json
+api-key.txt
+
+# 运行产物
+runs/
+memory/lessons.jsonl
+*.part
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
