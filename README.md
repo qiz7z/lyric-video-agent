@@ -135,6 +135,21 @@ memory/lessons.jsonl   # 运行经验（自动沉淀）
 tests/                 # 离线冒烟测试（用已交付歌曲真实数据做回归）
 docs/                  # 成品样例（封面等）
 runs/<歌名>/            # 每次运行的工作区（events/report/plan/成片/封面）
+pyproject.toml         # 项目元数据 + ruff 配置
+LICENSE                # MIT
+```
+
+## 工程规范
+
+- **Lint/Format**：ruff 双关卡（CI 强制）。`pyproject.toml` 里的每条豁免都附理由：
+  如 `BLE001`（盲捕获）在重试密集的网络代码里是有意设计（见 ARCHITECTURE §7 故障矩阵）。
+- **语义化修复示例**：`zip` 显式 `strict` 按语义二选——段↔子句配对处 `strict=True`
+  （长度已校验相等，防静默截断），单调性检查处 `strict=False`（两边长度差一）。
+- 本地自检命令：
+
+```bash
+.venv/Scripts/python -m ruff check .      # lint
+.venv/Scripts/python -m ruff format .     # format
 ```
 
 ## 一条命令的产出
@@ -163,7 +178,8 @@ runs/<歌名>/            # 每次运行的工作区（events/report/plan/成片
 ```
 
 数据依赖型测试使用已交付歌曲的本机文件，缺失时自动 SKIP——CI（GitHub Actions）
-上跑纯离线部分。
+上跑纯离线部分。测试刻意保持"零依赖独立脚本"形态而非 pytest 参数化：
+CI 免装额外框架，且每个脚本可单独运行。
 
 ## 设计文档
 
