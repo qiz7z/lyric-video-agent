@@ -1,11 +1,11 @@
 # Lyric Video Agent
 
-**输入一首歌，Agent 自动完成：歌词获取 → 人声对轴（异常时自主修复）→ AI 生成风景画面 → 视觉自检修复 → 合成成片。**
+**输入一首歌，多 Agent 协同产出一条可发布的抖音歌词视频：正片（歌词对轴 + AI 风景 + 视觉自检）+ 竖版封面（选帧 + AI 背景 + AI 文案 + 行楷排版）。**
 
 ![tests](https://github.com/YOUR_USERNAME/lyric-video-agent/actions/workflows/tests.yml/badge.svg)
 
-从 25 首实际交付抖音歌词视频的生产流水线提炼而来的 Agent 项目：底层工具全部经过真实交付
-验证，LLM 在三个决策点出场，并补上了人工流程里最大的断点——画面质检。
+从 25 首实际交付抖音歌词视频的生产流水线提炼而来的多 Agent 项目：底层工具全部经过
+真实交付验证，LLM 在固定决策点出场，并补上了人工流程里最大的断点——画面质检。
 
 ```
 听歌              对轴                        生画面            自检            成片
@@ -15,7 +15,12 @@
           │        ▼                                                     │
           │  降级路由(interp)? ──► [修复循环] LLM function-calling        │
           │        │            自主选工具(调参/裁前奏) + 质量门槛把关     │
-          └── 黑底验证版 → 人工听感闸门（昂贵环节前的成本闸门）────────────┘
+          │        ▼                                                     │
+          └── 黑底验证版 → 人工听感闸门 ──────────────────────────────────┘
+                                                                        │
+   封面 Agent：候选帧 → 视觉选帧 → 图片模型竖版背景 → 文本模型文案  ◄────┘
+              → 行楷排版(代码) → 封面QC        ▼
+                                        cover_final.png (1080×1440)
 ```
 
 ## 为什么值得看
@@ -27,6 +32,11 @@
 - **真 function-calling 修复循环**（ARCHITECTURE.md §4）：对齐走降级路由时，LLM 自主
   诊断报告、选择修复工具、根据执行观察决定下一步；质量门槛拒绝"路由升级但偏差劣化"
   的候选并自动回退——**E2E 实测拦截了一次 delta_max 15.1s 的劣化升级**。
+- **双 Agent 协同**（ARCHITECTURE.md §6）：视频 Agent × 封面 Agent，模态/QC 闭环/
+  生命周期三重不同。封面链路已用 Agnes 三真模型（文本+图片+视觉）端到端实测——
+  文本模型自主写出的文案"逆着光 也要开成向日葵"：
+
+  ![封面样例](docs/cover_example.png)
 - **核心算法有量化结果**：DP 单调对齐（LRC 软锚点 + 单调性约束 + 噪声段罚金），
   取代均匀量化方案（后者在回归中精确复现了历史上的"逐级漂移"事故）。
 - **补上人工流程最大断点**：过去"人物变形无法自动判定，只能用户终审"；现在视觉模型
@@ -78,7 +88,8 @@
 python -m venv --system-site-packages .venv
 .venv/Scripts/pip install -r requirements.txt -r requirements-demucs.txt
 
-# 2. 配置 LLM（任何 OpenAI 兼容端点：DeepSeek / GLM / Qwen / OpenAI...）
+# 2. 配置 LLM（任何 OpenAI 兼容端点：DeepSeek / GLM / Qwen / Agnes / OpenAI...）
+#    实测 Agnes 的 agnes-2.5-flash 同时支持文本与视觉（读图），可全栈免费：
 copy config.example.json config.json   # 填入 api_key；或用环境变量 LVA_LLM_API_KEY
 
 # 3. 先离线走一遍链路（MockLLM，不花一分钱，~25s）
@@ -96,10 +107,11 @@ copy config.example.json config.json   # 填入 api_key；或用环境变量 LVA
 ```
 agent/                 # Agent 层
   cli.py               #   命令行入口
-  orchestrator.py      #   10 级流水线编排（含 3 个 LLM 决策点 + 人工闸门）
-  planner.py           #   [决策点1] 制作规划（LLM 生成 + 确定性校验闭环）
-  repair.py            #   [决策点2] function-calling 修复循环（诊断→选工具→质量门槛）
-  verifier.py          #   [决策点3] 视觉质检 + 重生成循环
+  orchestrator.py      #   流水线编排（视频 Agent + 封面 Agent + 人工闸门）
+  planner.py           #   [决策点] 制作规划（LLM 生成 + 确定性校验闭环）
+  repair.py            #   [决策点] function-calling 修复循环（诊断→选工具→质量门槛）
+  verifier.py          #   [决策点] 视觉质检 + 重生成循环
+  cover.py             #   [决策点] 封面 Agent（选帧/背景/文案/排版/QC）
   llm.py               #   OpenAI 兼容客户端 + MockLLM（离线测试）
   memory.py            #   playbook（长期策略）+ lessons（运行经验）
 tools/                 # 工具层（纯确定性函数，可独立单测）
@@ -107,14 +119,17 @@ tools/                 # 工具层（纯确定性函数，可独立单测）
   audio.py             #   ffmpeg / demucs 封装 / RMS 包络
   align.py             #   ★ 字幕-人声对齐（三路路由 + DP 单调对齐，参数可覆盖）
   ass.py               #   ASS 字幕渲染（fad-only 极简策略）
-  videogen.py          #   Agnes API 客户端（限流/续传/校验全封装）
+  videogen.py          #   Agnes 视频 API 客户端（限流/续传/校验全封装）
+  imagogen.py          #   Agnes 图片 API 客户端 + 竖版裁切
+  typography.py        #   封面排版（drawtext + 中文字体，模型画图代码写字）
   compose.py           #   xfade 合成 + NVENC（失败回退 libx264）
   inspect.py           #   ffprobe / 抽帧
   schemas.py           #   function calling 工具 Schema
 policy/playbook.md     # 领域 SOP（Agent 规划时整篇注入）
 memory/lessons.jsonl   # 运行经验（自动沉淀）
 tests/                 # 离线冒烟测试（用已交付歌曲真实数据做回归）
-runs/<歌名>/            # 每次运行的工作区（events/report/plan/成片）
+docs/                  # 成品样例（封面等）
+runs/<歌名>/            # 每次运行的工作区（events/report/plan/成片/封面）
 ```
 
 ## 一条命令的产出
@@ -129,6 +144,8 @@ runs/<歌名>/            # 每次运行的工作区（events/report/plan/成片
 | `<歌名>_字幕验证版.mp4` | 黑底白字验证片（人工听感闸门，≈11MB/3.5min歌） |
 | `clips/clip01..N.mp4` | AI 生成的风景片段 |
 | `<歌名>_歌词视频.mp4` | 正式成片（1080p，烧录字幕 + 原曲立体声） |
+| `cover_final.png` | 封面 Agent 产物（1080×1440 竖版，可直接发布） |
+| `cover_decision.json` | 封面 Agent 每步决策记录（选帧/背景模式/文案/QC） |
 | `run_report.json` | 本次运行完整报告 |
 
 ## 测试
@@ -137,6 +154,7 @@ runs/<歌名>/            # 每次运行的工作区（events/report/plan/成片
 .venv/Scripts/python tests/test_lyrics.py        # 内嵌LRC/LRCLib/过滤（真实mp3）
 .venv/Scripts/python tests/test_align.py         # 对齐回归（寂寞沙洲冷地面真值）
 .venv/Scripts/python tests/test_orchestrator.py  # ASS/规划/修复循环/NVENC合成小样
+.venv/Scripts/python tests/test_cover.py         # 封面Agent离线链（真实抽帧+排版）
 ```
 
 数据依赖型测试使用已交付歌曲的本机文件，缺失时自动 SKIP——CI（GitHub Actions）

@@ -11,6 +11,8 @@
   },
   "agnes": {
     "api_key": "从 api-key.txt 或环境变量 LVA_AGNES_API_KEY 提供",
+    "base_url": "https://apihub.agnes-ai.com/v1",
+    "image_model": "agnes-image-2.1-flash",
     "proxies": null
   }
 }

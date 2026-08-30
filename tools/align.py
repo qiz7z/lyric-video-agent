@@ -6,7 +6,7 @@
 算法骨架（三代实战版本收敛而来，见 ARCHITECTURE.md 的演进史）：
   1. demucs 干净人声 -> RMS 包络 -> 自适应阈值切"演唱段" -> 合并 <0.45s 呼吸段；
   2. 按段数/行数比选路由（映射按 onset 数选路）：
-       ratio ≈ 1   -> sequential   顺序装填：行 i 按单调量化认领段，onset 为骨架；
+       ratio ≈ 1   -> sequential   顺序装填：DP 单调对齐（onset 为骨架，LRC 软锚点）；
        ratio >> 1  -> lrc_primary  段远多于行（DJ/重复副歌）：信 LRC，
                                      onset 只在 ±1.2s 内微调（贪心最近匹配会
                                      跨副歌吸附、经单调链放大成 3~9s 暴偏——实战教训）；
@@ -117,9 +117,9 @@ def align(vocals_wav_envelope: tuple[np.ndarray, np.ndarray],
         total = total - trim
 
     ratio = len(segs) / len(lyrics) if lyrics else 0.0
-    if len(segs) >= len(lyrics) and ratio <= 1.7:
+    if len(segs) >= len(lyrics) and ratio <= 2.0:
         route = "sequential"
-    elif ratio > 1.7:
+    elif ratio > 2.0:
         route = "lrc_primary"
     else:
         route = "interp"

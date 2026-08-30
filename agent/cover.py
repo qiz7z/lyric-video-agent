@@ -1,0 +1,188 @@
+# -*- coding: utf-8 -*-
+"""CoverAgent —— 封面 Agent（多 Agent 协同的第二主角）。
+
+与视频 Agent 的分工（面试三立论，详见 ARCHITECTURE §5）：
+  模态不同（视频 vs 图+文）、QC 闭环不同（人物/变形 vs 文字可读性/竖版构图）、
+  生命周期不同（可独立对已有视频补跑，无需重新生片）。
+
+流水线（每步都有降级路径，任何配置缺失都不阻塞）：
+  1. 候选帧抽取   正片每段抽 1 帧（或整片均匀 6 帧）
+  2. 选帧 [视觉]  视觉模型按"代表性/构图/标题留白"打分选代表帧；无视觉→取中段帧
+  3. 封面背景     图片模型按正片意象生成竖版海报背景；无 key→选中帧居中裁成 3:4
+  4. 文案 [文本]  文本模型写主标题(≤12字)+署名；无 LLM→歌名/歌手兜底
+  5. 排版渲染     纯代码 drawtext（模型负责画面，代码负责文字）
+  6. 封面QC [视觉] 文字可读性/构图检查；不合格带反馈重生成背景一次
+
+设计判断：中文文字绝不交给图像模型画（必乱码）——背景归模型，文字归代码。
+"""
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from tools.imagogen import ImageGen, frame_to_vertical
+from tools.inspect import extract_frames
+from tools.typography import render_cover
+
+PICK_PROMPT = """你是短视频封面选帧师。以下是同一支歌词视频的候选帧（按顺序编号，从0开始）。
+选一张最适合做封面主页缩略图的：主题代表性最强、构图最完整、上部有留白可放标题。
+只输出 JSON：{"index": <编号>, "reason": "<=20字"}"""
+
+COPY_PROMPT = """你是短视频封面文案师。根据歌曲信息与画面主题写封面文字。
+要求：主标题是情绪短句（不超过12个汉字，不用书名号/引号，可化用歌词但不要整句照抄）；
+署名格式"《歌名》 歌手"。
+只输出 JSON：{"title": "<主标题>", "subtitle": "<署名>"}"""
+
+QC_PROMPT = """你是封面质检员。检查这张竖版封面：
+1) 文字清晰可读、无乱码、无截断；2) 构图完整、无明显变形；3) 无人脸/人物特写。
+只输出 JSON：{"ok": true/false, "issues": ["问题", ...], "background_feedback": "仅 ok=false 时给背景图的改写建议"}"""
+
+COVER_W, COVER_H = 1080, 1440
+
+
+class CoverAgent:
+    def __init__(self, title: str, artist: str = "", workdir: str = "",
+                 llm=None, vision=None, imagegen: ImageGen | None = None,
+                 plan: dict | None = None):
+        self.title, self.artist = title, artist
+        self.work = Path(workdir)
+        self.work.mkdir(parents=True, exist_ok=True)
+        self.llm, self.vision, self.imagegen, self.plan = llm, vision, imagegen, plan or {}
+        self.decisions: dict = {"agent": "cover", "title": title, "steps": {}}
+
+    # ---- 主流程 ----
+    def run(self, video_path: str | None = None,
+            clips: list[str] | None = None) -> dict:
+        frames = self._step_candidates(video_path, clips)
+        picked = self._step_pick(frames)
+        bg = self._step_background(picked)
+        copy = self._step_copy()
+        cover = self._step_render(bg, copy)
+        self._step_qc(cover, bg, copy)
+        (self.work / "cover_decision.json").write_text(
+            json.dumps(self.decisions, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"[cover] 完成: {cover}")
+        self.decisions["cover"] = cover
+        return self.decisions
+
+    # ---- 1. 候选帧 ----
+    def _step_candidates(self, video_path, clips) -> list[str]:
+        out = self.work / "cover_frames"
+        if clips:
+            frames = []
+            for i, c in enumerate(clips, 1):
+                if Path(c).exists():
+                    frames += extract_frames(c, [8.0], str(out), prefix=f"cand{i:02d}")
+        else:
+            frames = extract_frames(video_path, [30, 60, 90, 120, 150, 180],
+                                    str(out), prefix="cand") if video_path else []
+        self.decisions["steps"]["candidates"] = len(frames)
+        print(f"[cover] 候选帧 {len(frames)}")
+        return frames
+
+    # ---- 2. 选帧 [LLM决策点：视觉] ----
+    def _step_pick(self, frames: list[str]) -> str:
+        if not frames:
+            raise RuntimeError("无候选帧可选取（视频与 clips 均缺失）")
+        if self.vision and len(frames) > 1:
+            try:
+                raw = self.vision.vision(PICK_PROMPT, frames, max_tokens=200)
+                m = re.search(r"\{.*\}", raw, re.S)
+                idx = int(json.loads(m.group(0))["index"]) if m else 0
+                idx = max(0, min(idx, len(frames) - 1))
+                self.decisions["steps"]["pick"] = {"mode": "vision", "index": idx}
+                print(f"[cover] 视觉选帧 #{idx}")
+                return frames[idx]
+            except Exception as e:
+                print(f"[cover] 视觉选帧失败（{str(e)[:80]}），用启发式")
+        pick = frames[len(frames) // 2]           # 启发式：中段帧（多为副歌附近）
+        self.decisions["steps"]["pick"] = {"mode": "heuristic", "frame": Path(pick).name}
+        return pick
+
+    # ---- 3. 背景（图模型 / 帧降级）----
+    def _step_background(self, picked_frame: str) -> str:
+        bg_out = self.work / "cover_bg.png"
+        if self.imagegen is None:
+            print("[cover] 无图片模型 key：用选中帧裁竖版做背景（降级）")
+            self.decisions["steps"]["background"] = {"mode": "frame_fallback"}
+            return frame_to_vertical(picked_frame, str(bg_out), COVER_W, COVER_H)
+        theme = self.plan.get("theme", "serene cinematic scenery")
+        mood = self.plan.get("mood", "cinematic")
+        prompt = (f"Vertical poster background art, no text, no people: {theme}. "
+                  f"Mood: {mood}. Based on this visual moment: a scene with soft "
+                  f"upper area left clean for a title, rich detail in the middle, "
+                  f"cinematic lighting, ultra detailed, 4k")
+        try:
+            raw_bg = self.imagegen.generate(prompt, str(self.work / "cover_bg_raw.png"),
+                                            size=f"{COVER_W}x{COVER_H}")
+            from tools.imagogen import scale_to
+            print("[cover] 图片模型生成竖版背景")
+            self.decisions["steps"]["background"] = {"mode": "image_model", "prompt": prompt[:120]}
+            return scale_to(raw_bg, str(bg_out), COVER_W, COVER_H)
+        except Exception as e:
+            print(f"[cover] 图片模型失败（{str(e)[:80]}）：降级用选中帧")
+            self.decisions["steps"]["background"] = {"mode": "frame_fallback",
+                                                     "reason": str(e)[:120]}
+            return frame_to_vertical(picked_frame, str(bg_out), COVER_W, COVER_H)
+
+    # ---- 4. 文案 [LLM决策点：文本] ----
+    def _step_copy(self) -> dict:
+        user = json.dumps({"task": "cover_copy", "title": self.title,
+                           "artist": self.artist,
+                           "theme": self.plan.get("theme", "")}, ensure_ascii=False)
+        if self.llm is not None:
+            try:
+                msg = self.llm.chat([
+                    {"role": "system", "content": COPY_PROMPT},
+                    {"role": "user", "content": user}])
+                copy = json.loads(re.search(r"\{.*\}", msg.get("content") or "{}", re.S).group(0))
+                title = str(copy.get("title") or self.title).strip()[:14]
+                subtitle = str(copy.get("subtitle") or f"《{self.title}》 {self.artist}").strip()[:30]
+                self.decisions["steps"]["copy"] = {"mode": "llm", "title": title}
+                print(f"[cover] 文案: {title} / {subtitle}")
+                return {"title": title, "subtitle": subtitle}
+            except Exception as e:
+                print(f"[cover] 文案生成失败（{str(e)[:80]}），用歌名兜底")
+        copy = {"title": self.title[:14], "subtitle": f"《{self.title}》 {self.artist}".strip()}
+        self.decisions["steps"]["copy"] = {"mode": "fallback", "title": copy["title"]}
+        return copy
+
+    # ---- 5. 排版（纯代码）----
+    def _step_render(self, bg: str, copy: dict) -> str:
+        out = self.work / "cover_final.png"
+        render_cover(bg, copy["title"], copy["subtitle"], str(out), str(self.work))
+        self.decisions["steps"]["render"] = {"output": out.name}
+        return str(out)
+
+    # ---- 6. 封面QC [LLM决策点：视觉] ----
+    def _step_qc(self, cover: str, bg: str, copy: dict) -> None:
+        if self.vision is None:
+            self.decisions["steps"]["qc"] = {"mode": "skipped",
+                                             "note": "未配置视觉模型，请人工终审"}
+            print("[cover] 未配置视觉模型：请人工终审封面")
+            return
+        try:
+            raw = self.vision.vision(QC_PROMPT, [cover], max_tokens=300)
+            m = re.search(r"\{.*\}", raw, re.S)
+            verdict = json.loads(m.group(0)) if m else {"ok": True}
+            self.decisions["steps"]["qc"] = {"mode": "vision", **verdict}
+            print(f"[cover] QC: ok={verdict.get('ok')} issues={verdict.get('issues')}")
+            if not verdict.get("ok") and self.imagegen is not None:
+                feedback = verdict.get("background_feedback") or "cleaner composition"
+                bg2 = self.work / "cover_bg_v2.png"
+                prompt = (f"Vertical poster background, no text, no people: "
+                          f"{self.plan.get('theme', 'cinematic scenery')}. "
+                          f"Fix: {feedback}. Cinematic, ultra detailed")
+                raw_bg = self.imagegen.generate(prompt, str(bg2), size=f"{COVER_W}x{COVER_H}")
+                from tools.imagogen import scale_to
+                from tools.typography import render_cover as rc
+                bg_std = scale_to(raw_bg, str(self.work / "cover_bg_std_v2.png"),
+                                  COVER_W, COVER_H)
+                cover2 = rc(bg_std, copy["title"], copy["subtitle"],
+                            str(self.work / "cover_final.png"), str(self.work))
+                self.decisions["steps"]["qc"]["repaired"] = True
+                self.decisions["cover"] = cover2
+                print("[cover] QC 不合格已重生成一次")
+        except Exception as e:
+            self.decisions["steps"]["qc"] = {"mode": "error", "note": str(e)[:150]}

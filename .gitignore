@@ -12,3 +12,7 @@ memory/lessons.jsonl
 __pycache__/
 *.pyc
 .pytest_cache/
+tests/data/*.wav
+tests/data/**/*.wav
+tests/data/*.wav
+tests/data/separated/

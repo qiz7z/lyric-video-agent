@@ -81,13 +81,22 @@ class MockLLM(LLMClient):
         super().__init__("mock://", "mock", "mock")
 
     def chat(self, messages, tools=None, max_tokens=4096):
-        task = self._task_of(messages)
+        task, payload = self._task_of(messages)
         if task == "plan":
             return {"content": json.dumps(_MOCK_PLAN, ensure_ascii=False)}
         if task == "qc":
             return {"content": json.dumps({"frames": []}, ensure_ascii=False)}
         if task == "repair":
             return self._repair_step(messages)
+        if task == "cover_pick":
+            return {"content": json.dumps({"index": 0, "reason": "mock"}, ensure_ascii=False)}
+        if task == "cover_copy":
+            song = str(payload.get("title", "歌名"))
+            return {"content": json.dumps(
+                {"title": song, "subtitle": f"《{song}》 {payload.get('artist', '')}".strip()},
+                ensure_ascii=False)}
+        if task == "cover_qc":
+            return {"content": json.dumps({"ok": True, "issues": []}, ensure_ascii=False)}
         return {"content": "ok"}
 
     @staticmethod
@@ -108,18 +117,24 @@ class MockLLM(LLMClient):
                                                             "接受当前 interp 结果"})}}]}
 
     @staticmethod
-    def _task_of(messages) -> str:
+    def _task_of(messages) -> tuple[str, dict]:
         """从消息里解析出任务标记（user content 是 JSON 字符串）。"""
         for m in messages:
             c = m.get("content")
             if isinstance(c, str) and c.strip().startswith("{"):
                 try:
-                    return json.loads(c).get("task", "")
+                    payload = json.loads(c)
+                    return payload.get("task", ""), payload
                 except Exception:
                     continue
-        return ""
+        return "", {}
 
     def vision(self, prompt, image_paths, max_tokens=2048):
+        # 按任务语境返回对应格式的假结论
+        if "选帧" in prompt:
+            return json.dumps({"index": 0, "reason": "mock"}, ensure_ascii=False)
+        if "封面质检" in prompt:
+            return json.dumps({"ok": True, "issues": []}, ensure_ascii=False)
         return json.dumps({"frames": [{"index": i, "verdict": "ok", "reason": "mock"}
                                       for i in range(len(image_paths))]})
 

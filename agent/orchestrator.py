@@ -42,11 +42,12 @@ class Orchestrator:
     def __init__(self, title: str, audio: str, artist: str = "",
                  mock: bool = False, yes: bool = False, skip_generate: bool = False,
                  skip_qc: bool = False, skip_repair: bool = False,
-                 trim: float | None = None):
+                 skip_cover: bool = False, trim: float | None = None):
         self.title, self.artist = title, artist
         self.audio = str(Path(audio).resolve())
         self.mock, self.yes = mock, yes
-        self.skip_generate, self.skip_qc, self.skip_repair = skip_generate, skip_qc, skip_repair
+        self.skip_generate, self.skip_qc = skip_generate, skip_qc
+        self.skip_repair, self.skip_cover = skip_repair, skip_cover
         self.trim_override = trim
         self.cfg = None if mock else _load_cfg()
         self.llm = self._make_llm()
@@ -92,7 +93,8 @@ class Orchestrator:
         clips = self._stage_generate(plan)
         clips = self._stage_qc(plan, clips)
         final = self._stage_compose(audio, plan, env, clips)
-        report = self._stage_report(plan, env, clips, final, time.time() - t0)
+        cover = self._stage_cover(plan, final, clips)
+        report = self._stage_report(plan, env, clips, final, cover, time.time() - t0)
         return report
 
     # Stage 0
@@ -312,8 +314,39 @@ class Orchestrator:
                                   dur=CLIP_DUR, xf=XF, fps=FPS, encoder="nvenc")
         return str(out)
 
+    # Stage 9.5 封面 Agent（多 Agent 协同：视频 Agent 产出 -> 封面 Agent 接力）
+    def _stage_cover(self, plan: dict, final: str, clips: list[str]) -> dict | None:
+        if self.skip_cover:
+            print("[cover] --skip-cover：跳过封面 Agent")
+            return None
+        from .cover import CoverAgent
+        from tools.imagogen import ImageGen
+
+        agnes = (self.cfg or {}).get("agnes") or {}
+        key = agnes.get("api_key") or _read_legacy_key()
+        # mock 模式强制禁用图片生成（离线测试绝不花钱），走帧降级路径
+        imagegen = None
+        if key and not self.mock:
+            imagegen = ImageGen(key, base_url=agnes.get("base_url",
+                                                        "https://apihub.agnes-ai.com/v1"),
+                                model=agnes.get("image_model", "agnes-image-2.1-flash"),
+                                proxies=agnes.get("proxies"))
+        agent = CoverAgent(title=self.title, artist=self.artist, workdir=str(self.work),
+                           llm=self.llm, vision=self.vision, imagegen=imagegen, plan=plan)
+        real_clips = [c for c in clips if Path(c).exists()]
+        try:
+            if final and Path(final).exists():
+                return agent.run(video_path=final)
+            if real_clips:
+                return agent.run(clips=real_clips)
+        except Exception as e:
+            print(f"[cover] 封面 Agent 失败（{str(e)[:100]}），不阻塞主流程")
+            return None
+        print("[cover] 无视频/clips 源，跳过封面")
+        return None
+
     # Stage 10 沉淀
-    def _stage_report(self, plan, env, clips, final, elapsed) -> dict:
+    def _stage_report(self, plan, env, clips, final, cover, elapsed) -> dict:
         info = inspect_mod.probe_video(final) if final and Path(final).exists() else {}
         report = {
             "title": self.title,
@@ -323,6 +356,7 @@ class Orchestrator:
             "align": env["report"],
             "final_video": final,
             "final_probe": {k: info.get(k) for k in ("duration",)},
+            "cover": (cover or {}).get("cover"),
             "elapsed_sec": round(elapsed, 1),
             "mock": self.mock,
         }

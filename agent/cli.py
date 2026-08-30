@@ -33,6 +33,7 @@ def main(argv=None):
     ap.add_argument("--skip-generate", action="store_true", help="跳过 AI 生片")
     ap.add_argument("--skip-qc", action="store_true", help="跳过视觉自检")
     ap.add_argument("--skip-repair", action="store_true", help="跳过对齐修复循环")
+    ap.add_argument("--skip-cover", action="store_true", help="跳过封面 Agent")
     ap.add_argument("--trim", type=float, default=None, help="裁掉前奏秒数")
     args = ap.parse_args(argv)
 
@@ -40,7 +41,8 @@ def main(argv=None):
     orch = Orchestrator(title=args.title, audio=args.audio, artist=args.artist,
                         mock=args.mock, yes=args.yes,
                         skip_generate=args.skip_generate, skip_qc=args.skip_qc,
-                        skip_repair=args.skip_repair, trim=args.trim)
+                        skip_repair=args.skip_repair, skip_cover=args.skip_cover,
+                        trim=args.trim)
     report = orch.run()
     print("\n=== 运行摘要 ===")
     print(f"路由: {report['align'].get('route')}  对齐均值: {report['align'].get('delta_abs_mean')}s")
