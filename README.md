@@ -18,7 +18,8 @@
           │        ▼                                                     │
           └── 黑底验证版 → 人工听感闸门 ──────────────────────────────────┘
                                                                         │
-   封面 Agent：候选帧 → 视觉选帧 → 图片模型竖版背景 → 文本模型文案  ◄────┘
+   封面 Agent：歌名 → 调研(搜索工具循环) → 视觉概念与生图提示词 ◄──────┘
+              → 候选帧 → 视觉选帧 → 图片模型竖版背景 → 文本模型文案
               → 行楷排版(代码) → 封面QC        ▼
                                         cover_final.png (1080×1440)
 ```
@@ -81,6 +82,7 @@
 | 无视觉模型 | 跳过自动质检，明确提示人工终审 |
 | 无 demucs | 对齐降级全曲包络，报告标注（质量下降可见） |
 | 无 Agnes key | 只产出验证片，生片环节跳过 |
+| 无网络/搜索失败 | 封面调研步自动跳过，退回 plan 主题（背景/文案照常产出） |
 | NVENC 不可用 | 自动回退 libx264 重编码 |
 
 ## 快速开始
@@ -113,12 +115,13 @@ agent/                 # Agent 层
   planner.py           #   [决策点] 制作规划（LLM 生成 + 确定性校验闭环）
   repair.py            #   [决策点] function-calling 修复循环（诊断→选工具→质量门槛）
   verifier.py          #   [决策点] 视觉质检 + 重生成循环
-  cover.py             #   [决策点] 封面 Agent（选帧/背景/文案/排版/QC）
+  cover.py             #   [决策点] 封面 Agent（调研/选帧/背景/文案/排版/QC）
   llm.py               #   OpenAI 兼容客户端 + MockLLM（离线测试）
   memory.py            #   playbook（长期策略）+ lessons（运行经验）
 tools/                 # 工具层（纯确定性函数，可独立单测）
   lyrics.py            #   内嵌 LRC / LRCLib / 繁简转换 / 脏数据过滤
   audio.py             #   ffmpeg / demucs 封装 / RMS 包络
+  research.py          #   歌曲调研（ddgs 网页搜索 + MusicBrainz + 本地元数据）
   align.py             #   ★ 字幕-人声对齐（三路路由 + DP 单调对齐，参数可覆盖）
   ass.py               #   ASS 字幕渲染（fad-only 极简策略）
   videogen.py          #   Agnes 视频 API 客户端（限流/续传/校验全封装）
