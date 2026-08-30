@@ -25,3 +25,4 @@ jobs:
           python tests/test_orchestrator.py
           python tests/test_lyrics.py
           python tests/test_align.py
+          python tests/test_cover.py
