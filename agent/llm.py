@@ -88,6 +88,14 @@ class MockLLM(LLMClient):
             return {"content": json.dumps({"frames": []}, ensure_ascii=False)}
         if task == "repair":
             return self._repair_step(messages)
+        if task == "cover_research":
+            return {"content": json.dumps(
+                {"background": "mock：励志歌曲",
+                 "visual_concept": "晨光下的花田与光",
+                 "image_prompt": "golden sunrise over a sunflower field, hopeful light, "
+                                 "vertical poster, no text, no people",
+                 "title_hint": "追着光就能抵达"},
+                ensure_ascii=False)}
         if task == "cover_pick":
             return {"content": json.dumps({"index": 0, "reason": "mock"}, ensure_ascii=False)}
         if task == "cover_copy":

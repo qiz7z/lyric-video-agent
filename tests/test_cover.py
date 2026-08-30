@@ -27,7 +27,12 @@ def main():
     work = ROOT / "runs" / "_test_cover"
     agent = CoverAgent(title="梦的光点", artist="王心凌", workdir=str(work),
                        llm=MockLLM(), vision=MockLLM(), imagegen=None,
-                       plan={"theme": "励志阳光风景", "mood": "hopeful"})
+                       plan={"theme": "励志阳光风景", "mood": "hopeful"},
+                       # 离线调研源（MockLLM 不调工具直接给终答）
+                       research_fn=lambda: {"web": [{"title": "mock", "body": "mock",
+                                                     "href": ""}],
+                                            "musicbrainz": None, "local": {}},
+                       search_fn=lambda q: [])
     decisions = agent.run(video_path=str(FINAL))
 
     cover = Path(decisions["cover"])
@@ -44,6 +49,8 @@ def main():
     assert steps["background"]["mode"] == "frame_fallback", "无 key 应走帧降级"
     assert steps["copy"]["mode"] == "llm", "MockLLM 存在时文案应走 llm 模式"
     assert steps["pick"]["mode"] == "vision", "MockLLM 视觉存在时应走 vision 选帧"
+    assert steps["research"]["mode"] == "llm", "调研步应走 llm 模式"
+    assert steps["research"]["background"], "调研应产出背景摘要"
     assert (work / "cover_decision.json").exists(), "决策记录必须落盘"
     print(f"PASS test_cover ({cover.name}, {cover.stat().st_size // 1024}KB, "
           f"copy='{steps['copy']['title']}')")

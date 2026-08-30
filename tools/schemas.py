@@ -60,6 +60,22 @@ ACCEPT = {
     },
 }
 
+SEARCH_WEB = {
+    "type": "function",
+    "function": {
+        "name": "search_web",
+        "description": "网页搜索：查歌曲的背景故事/创作主题/收录专辑/相关意象。"
+                       "返回 [{title, body, href}] 摘要列表。",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "搜索词"},
+            },
+            "required": ["query"],
+        },
+    },
+}
+
 REPAIR_TOOLS = [RE_ALIGN, SET_TRIM, ACCEPT]
 
 SYSTEM_PROMPT = """你是歌词视频 Agent 的对齐修复器。当前对齐走了降级路由 interp

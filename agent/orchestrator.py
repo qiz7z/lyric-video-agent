@@ -331,8 +331,17 @@ class Orchestrator:
                                                         "https://apihub.agnes-ai.com/v1"),
                                 model=agnes.get("image_model", "agnes-image-2.1-flash"),
                                 proxies=agnes.get("proxies"))
+        # 调研函数（真实模式才挂网：信息源聚合 + 网页搜索工具）
+        research_fn = search_fn = None
+        if not self.mock:
+            from tools import research as research_mod
+            proxies = agnes.get("proxies")
+            research_fn = lambda: research_mod.research_package(
+                self.title, self.artist, audio_path=self.audio, proxies=proxies)
+            search_fn = lambda q: research_mod.search_web(q, proxies=proxies)
         agent = CoverAgent(title=self.title, artist=self.artist, workdir=str(self.work),
-                           llm=self.llm, vision=self.vision, imagegen=imagegen, plan=plan)
+                           llm=self.llm, vision=self.vision, imagegen=imagegen, plan=plan,
+                           research_fn=research_fn, search_fn=search_fn)
         real_clips = [c for c in clips if Path(c).exists()]
         try:
             if final and Path(final).exists():
