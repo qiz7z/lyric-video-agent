@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """修复循环：真正的 function-calling tool-use 环节。
 
 触发条件：对齐走了降级路由 interp（演唱段 < 歌词行数，字幕只能直用 LRC 时间）。
@@ -13,6 +12,7 @@ LLM 通过 function calling 在工具箱（re_align / set_trim / accept）里自
 
 被拒绝的参数会作为观察结果回传给 LLM（"被拒绝过的参数不要原样重试"）。
 """
+
 from __future__ import annotations
 
 import json
@@ -20,15 +20,14 @@ import re
 
 from tools.schemas import REPAIR_TOOLS, SYSTEM_PROMPT
 
-DELTA_MAX_OK = 3.0     # 质量门槛：最大偏差超过此值直接拒绝
+DELTA_MAX_OK = 3.0  # 质量门槛：最大偏差超过此值直接拒绝
 ROUTE_RANK = {"sequential": 2, "lrc_primary": 1, "interp": 0}
 
 
 def _quality(report: dict) -> tuple:
     """路由优先、偏差次之的字典序质量分。"""
     dmean = report.get("delta_abs_mean")
-    return (ROUTE_RANK.get(report.get("route"), 0),
-            -(dmean if dmean is not None else 99.0))
+    return (ROUTE_RANK.get(report.get("route"), 0), -(dmean if dmean is not None else 99.0))
 
 
 class RepairLoop:
@@ -45,17 +44,24 @@ class RepairLoop:
         best_events, best_report = events, dict(report)
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT.format(max_rounds=self.max_rounds)},
-            {"role": "user", "content": json.dumps({"task": "repair", "report": report},
-                                                   ensure_ascii=False)},
+            {
+                "role": "user",
+                "content": json.dumps({"task": "repair", "report": report}, ensure_ascii=False),
+            },
         ]
         for rnd in range(1, self.max_rounds + 1):
             msg = self.llm.chat(messages, tools=REPAIR_TOOLS)
             calls = msg.get("tool_calls") or []
             if not calls:
-                history.append({"round": rnd, "action": "accept_text",
-                                "note": (msg.get("content") or "")[:120]})
+                history.append(
+                    {
+                        "round": rnd,
+                        "action": "accept_text",
+                        "note": (msg.get("content") or "")[:120],
+                    }
+                )
                 break
-            call = calls[0]                      # 每轮只执行第一个工具调用
+            call = calls[0]  # 每轮只执行第一个工具调用
             name = call["function"]["name"]
             try:
                 args = json.loads(call["function"].get("arguments") or "{}")
@@ -67,8 +73,9 @@ class RepairLoop:
                 history.append({"round": rnd, "action": "accept", "args": args})
                 break
             if name == "re_align":
-                candidate = self.realign_fn(**{k: v for k, v in args.items()
-                                               if k in ("merge_gap", "thr_low", "thr_high")})
+                candidate = self.realign_fn(
+                    **{k: v for k, v in args.items() if k in ("merge_gap", "thr_low", "thr_high")}
+                )
             elif name == "set_trim":
                 seconds = max(0.0, min(float(args.get("seconds", 0)), 60.0))
                 candidate = self.realign_fn(trim=seconds)
@@ -79,24 +86,35 @@ class RepairLoop:
                 continue
 
             verdict, adopted = self._gate(candidate, best_events, best_report)
-            history.append({"round": rnd, "action": name, "args": args,
-                            "result": verdict,
-                            "candidate": {"route": candidate[1].get("route"),
-                                          "n_onsets": candidate[1].get("n_onsets"),
-                                          "delta_abs_mean": candidate[1].get("delta_abs_mean"),
-                                          "delta_abs_max": candidate[1].get("delta_abs_max")}})
+            history.append(
+                {
+                    "round": rnd,
+                    "action": name,
+                    "args": args,
+                    "result": verdict,
+                    "candidate": {
+                        "route": candidate[1].get("route"),
+                        "n_onsets": candidate[1].get("n_onsets"),
+                        "delta_abs_mean": candidate[1].get("delta_abs_mean"),
+                        "delta_abs_max": candidate[1].get("delta_abs_max"),
+                    },
+                }
+            )
             if adopted:
                 best_events, best_report = candidate
                 history[-1]["note"] = "已采纳"
                 break
-            observation = (f"{verdict}（已自动回退到当前最优结果）。"
-                           f"候选: route={candidate[1].get('route')} "
-                           f"delta_max={candidate[1].get('delta_abs_max')}。"
-                           f"不要原样重试相同参数。")
+            observation = (
+                f"{verdict}（已自动回退到当前最优结果）。"
+                f"候选: route={candidate[1].get('route')} "
+                f"delta_max={candidate[1].get('delta_abs_max')}。"
+                f"不要原样重试相同参数。"
+            )
             messages.append(self._tool_msg(call, observation))
         else:
-            history.append({"round": self.max_rounds, "action": "accept",
-                            "note": "达到轮数上限，自动接受"})
+            history.append(
+                {"round": self.max_rounds, "action": "accept", "note": "达到轮数上限，自动接受"}
+            )
         best_report["repair_history"] = history
         return best_events, best_report, history
 
@@ -113,9 +131,7 @@ class RepairLoop:
 
     @staticmethod
     def _tool_msg(call: dict, content: str) -> dict:
-        return {"role": "tool",
-                "tool_call_id": call.get("id") or "call_0",
-                "content": content}
+        return {"role": "tool", "tool_call_id": call.get("id") or "call_0", "content": content}
 
 
 def extract_tool_call(message: dict) -> tuple[str, dict] | None:

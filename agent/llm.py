@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """LLM 客户端：OpenAI 兼容协议（/chat/completions + tools），与具体厂商解耦。
 
 任何 OpenAI 兼容端点都能用：DeepSeek / GLM / Qwen(DashScope) / Moonshot / OpenAI /
@@ -7,6 +6,7 @@ vLLM / Ollama。配置读 config.json 或环境变量（详见 config.example.js
 MockLLM：无需 key 的离线实现，供 --mock 模式与单元测试使用——它按消息里的
 任务标记返回固定的规划/质检结果，用于不花钱验证整条编排链路的正确性。
 """
+
 from __future__ import annotations
 
 import json
@@ -34,8 +34,9 @@ def load_config() -> dict:
     agnes = cfg.setdefault("agnes", {})
     agnes.setdefault("api_key", env.get("LVA_AGNES_API_KEY", ""))
     if env.get("LVA_USE_PROXY"):
-        agnes.setdefault("proxies", {"http": "http://127.0.0.1:7890",
-                                     "https": "http://127.0.0.1:7890"})
+        agnes.setdefault(
+            "proxies", {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
+        )
     return cfg
 
 
@@ -48,17 +49,26 @@ class LLMClient:
         self.model = model
         self.temperature = temperature
 
-    def chat(self, messages: list[dict], tools: list[dict] | None = None,
-             max_tokens: int = 4096) -> dict:
+    def chat(
+        self, messages: list[dict], tools: list[dict] | None = None, max_tokens: int = 4096
+    ) -> dict:
         import requests
-        body = {"model": self.model, "messages": messages,
-                "temperature": self.temperature, "max_tokens": max_tokens}
+
+        body = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": max_tokens,
+        }
         if tools:
             body["tools"] = tools
             body["tool_choice"] = "auto"
-        r = requests.post(f"{self.base_url}/chat/completions",
-                          headers={"Authorization": f"Bearer {self.api_key}"},
-                          json=body, timeout=180)
+        r = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json=body,
+            timeout=180,
+        )
         r.raise_for_status()
         return r.json()["choices"][0]["message"]
 
@@ -67,9 +77,11 @@ class LLMClient:
         content = [{"type": "text", "text": prompt}]
         for p in image_paths:
             import base64
+
             b64 = base64.b64encode(Path(p).read_bytes()).decode()
-            content.append({"type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{b64}"}})
+            content.append(
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}}
+            )
         msg = self.chat([{"role": "user", "content": content}], max_tokens=max_tokens)
         return msg.get("content") or ""
 
@@ -89,20 +101,28 @@ class MockLLM(LLMClient):
         if task == "repair":
             return self._repair_step(messages)
         if task == "cover_research":
-            return {"content": json.dumps(
-                {"background": "mock：励志歌曲",
-                 "visual_concept": "晨光下的花田与光",
-                 "image_prompt": "golden sunrise over a sunflower field, hopeful light, "
-                                 "vertical poster, no text, no people",
-                 "title_hint": "追着光就能抵达"},
-                ensure_ascii=False)}
+            return {
+                "content": json.dumps(
+                    {
+                        "background": "mock：励志歌曲",
+                        "visual_concept": "晨光下的花田与光",
+                        "image_prompt": "golden sunrise over a sunflower field, hopeful light, "
+                        "vertical poster, no text, no people",
+                        "title_hint": "追着光就能抵达",
+                    },
+                    ensure_ascii=False,
+                )
+            }
         if task == "cover_pick":
             return {"content": json.dumps({"index": 0, "reason": "mock"}, ensure_ascii=False)}
         if task == "cover_copy":
             song = str(payload.get("title", "歌名"))
-            return {"content": json.dumps(
-                {"title": song, "subtitle": f"《{song}》 {payload.get('artist', '')}".strip()},
-                ensure_ascii=False)}
+            return {
+                "content": json.dumps(
+                    {"title": song, "subtitle": f"《{song}》 {payload.get('artist', '')}".strip()},
+                    ensure_ascii=False,
+                )
+            }
         if task == "cover_qc":
             return {"content": json.dumps({"ok": True, "issues": []}, ensure_ascii=False)}
         return {"content": "ok"}
@@ -113,16 +133,34 @@ class MockLLM(LLMClient):
         见过工具结果后 accept——覆盖'尝试-被拒-回退-接受'完整路径。"""
         seen_tool_result = any(m.get("role") == "tool" for m in messages)
         if not seen_tool_result:
-            return {"tool_calls": [{"id": "mock_1", "type": "function",
-                                    "function": {"name": "re_align",
-                                                 "arguments": json.dumps(
-                                                     {"merge_gap": 0.22,
-                                                      "reason": "提高分段灵敏度争取升级路由"})}}]}
-        return {"tool_calls": [{"id": "mock_2", "type": "function",
-                                "function": {"name": "accept",
-                                             "arguments": json.dumps(
-                                                 {"reason": "候选被质量门槛拒绝，"
-                                                            "接受当前 interp 结果"})}}]}
+            return {
+                "tool_calls": [
+                    {
+                        "id": "mock_1",
+                        "type": "function",
+                        "function": {
+                            "name": "re_align",
+                            "arguments": json.dumps(
+                                {"merge_gap": 0.22, "reason": "提高分段灵敏度争取升级路由"}
+                            ),
+                        },
+                    }
+                ]
+            }
+        return {
+            "tool_calls": [
+                {
+                    "id": "mock_2",
+                    "type": "function",
+                    "function": {
+                        "name": "accept",
+                        "arguments": json.dumps(
+                            {"reason": "候选被质量门槛拒绝，接受当前 interp 结果"}
+                        ),
+                    },
+                }
+            ]
+        }
 
     @staticmethod
     def _task_of(messages) -> tuple[str, dict]:
@@ -143,12 +181,18 @@ class MockLLM(LLMClient):
             return json.dumps({"index": 0, "reason": "mock"}, ensure_ascii=False)
         if "封面质检" in prompt:
             return json.dumps({"ok": True, "issues": []}, ensure_ascii=False)
-        return json.dumps({"frames": [{"index": i, "verdict": "ok", "reason": "mock"}
-                                      for i in range(len(image_paths))]})
+        return json.dumps(
+            {
+                "frames": [
+                    {"index": i, "verdict": "ok", "reason": "mock"} for i in range(len(image_paths))
+                ]
+            }
+        )
 
 
 _MOCK_PLAN = {
-    "theme": "mock励志阳光风景", "mood": "hopeful",
+    "theme": "mock励志阳光风景",
+    "mood": "hopeful",
     "font": "STXingkai",
     "trim_intro_seconds": 0,
     "notes": "mock plan for offline test",

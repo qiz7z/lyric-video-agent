@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """记忆层：策略手册（playbook）+ 经验沉淀（lessons）。
 
 两类记忆，生命周期不同：
@@ -8,6 +7,7 @@
                 QC 发现、修复动作），下次规划时取最近 K 条作为 few-shot。
 这就是本项目的 agent memory 设计：策略 = 长期规则，经验 = 近期反馈。
 """
+
 from __future__ import annotations
 
 import json
@@ -31,7 +31,7 @@ def load_lessons(k: int = 5) -> list[dict]:
     f = lessons_path()
     if not f.exists():
         return []
-    lines = [l for l in f.read_text(encoding="utf-8").splitlines() if l.strip()]
+    lines = [s for s in f.read_text(encoding="utf-8").splitlines() if s.strip()]
     out = []
     for line in lines[-k:]:
         try:

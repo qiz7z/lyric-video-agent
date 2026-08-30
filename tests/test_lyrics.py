@@ -1,6 +1,6 @@
-# -*- coding: utf-8 -*-
 """歌词获取测试：用真实交付 mp3（爱情码头 / 牧马城市）验证内嵌 LRC 读取、
 元数据/base64 过滤、时间有序。"""
+
 import sys
 from pathlib import Path
 
@@ -15,8 +15,8 @@ CANDIDATES = [
 
 
 def main():
-    from tools import lyrics as lyrics_mod
     from tools import audio as audio_mod
+    from tools import lyrics as lyrics_mod
 
     checked = 0
     for mp3 in CANDIDATES:
@@ -32,7 +32,7 @@ def main():
         for t, s in ly.lines:
             assert s.strip(), f"空行: {t}"
             assert len(s) < 200, f"疑似 base64/脏数据未滤净: {s[:50]}"
-        assert all(b[0] >= a[0] for a, b in zip(ly.lines, ly.lines[1:])), "时间须有序"
+        assert all(b[0] >= a[0] for a, b in zip(ly.lines, ly.lines[1:], strict=False)), "时间须有序"
         print("  样例:", ly.lines[0], ly.lines[1])
     if not checked:
         print("SKIP: 没找到测试 mp3")

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """CoverAgent —— 封面 Agent（多 Agent 协同的第二主角）。
 
 与视频 Agent 的分工（面试三立论，详见 ARCHITECTURE §5）：
@@ -15,6 +14,7 @@
 
 设计判断：中文文字绝不交给图像模型画（必乱码）——背景归模型，文字归代码。
 """
+
 from __future__ import annotations
 
 import json
@@ -58,10 +58,18 @@ COVER_W, COVER_H = 1080, 1440
 
 
 class CoverAgent:
-    def __init__(self, title: str, artist: str = "", workdir: str = "",
-                 llm=None, vision=None, imagegen: ImageGen | None = None,
-                 plan: dict | None = None,
-                 research_fn=None, search_fn=None):
+    def __init__(
+        self,
+        title: str,
+        artist: str = "",
+        workdir: str = "",
+        llm=None,
+        vision=None,
+        imagegen: ImageGen | None = None,
+        plan: dict | None = None,
+        research_fn=None,
+        search_fn=None,
+    ):
         self.title, self.artist = title, artist
         self.work = Path(workdir)
         self.work.mkdir(parents=True, exist_ok=True)
@@ -72,8 +80,7 @@ class CoverAgent:
         self.decisions: dict = {"agent": "cover", "title": title, "steps": {}}
 
     # ---- 主流程 ----
-    def run(self, video_path: str | None = None,
-            clips: list[str] | None = None) -> dict:
+    def run(self, video_path: str | None = None, clips: list[str] | None = None) -> dict:
         self._step_research()
         frames = self._step_candidates(video_path, clips)
         picked = self._step_pick(frames)
@@ -82,7 +89,8 @@ class CoverAgent:
         cover = self._step_render(bg, copy)
         self._step_qc(cover, bg, copy)
         (self.work / "cover_decision.json").write_text(
-            json.dumps(self.decisions, ensure_ascii=False, indent=1), encoding="utf-8")
+            json.dumps(self.decisions, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
         print(f"[cover] 完成: {cover}")
         self.decisions["cover"] = cover
         return self.decisions
@@ -91,8 +99,10 @@ class CoverAgent:
     def _step_research(self) -> None:
         """歌名 → 搜背景 → 视觉概念 → 英文生图提示词（先理解这首歌，再决定画什么）。"""
         if self.llm is None or (self.research_fn is None and self.search_fn is None):
-            self.decisions["steps"]["research"] = {"mode": "skipped",
-                                                   "note": "未配置调研源，走 plan.theme"}
+            self.decisions["steps"]["research"] = {
+                "mode": "skipped",
+                "note": "未配置调研源，走 plan.theme",
+            }
             return
         pkg = {}
         if self.research_fn:
@@ -102,43 +112,65 @@ class CoverAgent:
                 print(f"[research] 信息源聚合失败: {str(e)[:80]}")
         messages = [
             {"role": "system", "content": RESEARCH_SYSTEM},
-            {"role": "user", "content": json.dumps(
-                {"task": "cover_research", "title": self.title, "artist": self.artist,
-                 "plan_theme": self.plan.get("theme", ""), "sources": pkg},
-                ensure_ascii=False)},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "task": "cover_research",
+                        "title": self.title,
+                        "artist": self.artist,
+                        "plan_theme": self.plan.get("theme", ""),
+                        "sources": pkg,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
         ]
         searches: list[str] = []
         try:
-            for _ in range(4):                       # 工具循环上限（含最终答复轮）
+            for _ in range(4):  # 工具循环上限（含最终答复轮）
                 msg = self.llm.chat(messages, tools=[SEARCH_WEB])
                 calls = msg.get("tool_calls") or []
                 if not calls:
                     final = json.loads(
-                        re.search(r"\{.*\}", msg.get("content") or "{}", re.S).group(0))
+                        re.search(r"\{.*\}", msg.get("content") or "{}", re.S).group(0)
+                    )
                     self.research = {"mode": "llm", "searches": searches, **final}
                     self.decisions["steps"]["research"] = {
-                        "mode": "llm", "searches": searches,
+                        "mode": "llm",
+                        "searches": searches,
                         "background": final.get("background", "")[:60],
-                        "visual_concept": final.get("visual_concept", "")[:40]}
+                        "visual_concept": final.get("visual_concept", "")[:40],
+                    }
                     print(f"[research] 背景: {final.get('background', '')[:50]}")
                     print(f"[research] 概念: {final.get('visual_concept', '')}")
                     return
-                messages.append({"role": "assistant",
-                                 "content": msg.get("content") or None,
-                                 "tool_calls": calls})
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": msg.get("content") or None,
+                        "tool_calls": calls,
+                    }
+                )
                 query = json.loads(calls[0]["function"].get("arguments") or "{}").get("query", "")
                 results = self.search_fn(query) if self.search_fn else []
                 searches.append(query)
                 print(f"[research] 搜索: {query} -> {len(results)} 条")
-                messages.append({"role": "tool",
-                                 "tool_call_id": calls[0].get("id") or "call_0",
-                                 "content": json.dumps(results, ensure_ascii=False)[:2000]})
-            self.research = {"mode": "llm", "searches": searches}   # 轮次耗尽无终答
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": calls[0].get("id") or "call_0",
+                        "content": json.dumps(results, ensure_ascii=False)[:2000],
+                    }
+                )
+            self.research = {"mode": "llm", "searches": searches}  # 轮次耗尽无终答
         except Exception as e:
             print(f"[research] 调研失败（{str(e)[:80]}），降级 plan.theme")
             self.research = {"mode": "error", "note": str(e)[:120]}
         self.decisions["steps"]["research"] = {
-            "mode": self.research.get("mode"), "searches": searches}
+            "mode": self.research.get("mode"),
+            "searches": searches,
+        }
 
     # ---- 1. 候选帧 ----
     def _step_candidates(self, video_path, clips) -> list[str]:
@@ -149,8 +181,11 @@ class CoverAgent:
                 if Path(c).exists():
                     frames += extract_frames(c, [8.0], str(out), prefix=f"cand{i:02d}")
         else:
-            frames = extract_frames(video_path, [30, 60, 90, 120, 150, 180],
-                                    str(out), prefix="cand") if video_path else []
+            frames = (
+                extract_frames(video_path, [30, 60, 90, 120, 150, 180], str(out), prefix="cand")
+                if video_path
+                else []
+            )
         self.decisions["steps"]["candidates"] = len(frames)
         print(f"[cover] 候选帧 {len(frames)}")
         return frames
@@ -170,7 +205,7 @@ class CoverAgent:
                 return frames[idx]
             except Exception as e:
                 print(f"[cover] 视觉选帧失败（{str(e)[:80]}），用启发式")
-        pick = frames[len(frames) // 2]           # 启发式：中段帧（多为副歌附近）
+        pick = frames[len(frames) // 2]  # 启发式：中段帧（多为副歌附近）
         self.decisions["steps"]["pick"] = {"mode": "heuristic", "frame": Path(pick).name}
         return pick
 
@@ -188,41 +223,55 @@ class CoverAgent:
         else:
             base = self.plan.get("theme", "serene cinematic scenery")
             mood = self.plan.get("mood", "cinematic")
-        prompt = (f"Vertical poster background art, no text, no people: {base}. "
-                  f"Mood: {mood}. Composition: soft upper area left clean for a title, "
-                  f"rich detail in the middle, cinematic lighting, ultra detailed, 4k")
+        prompt = (
+            f"Vertical poster background art, no text, no people: {base}. "
+            f"Mood: {mood}. Composition: soft upper area left clean for a title, "
+            f"rich detail in the middle, cinematic lighting, ultra detailed, 4k"
+        )
         try:
             # 幂等键 = 提示词内容哈希：调研产出新提示词时自动失效旧缓存
             prompt_hash = __import__("hashlib").md5(prompt.encode("utf-8")).hexdigest()[:8]
             raw_bg = self.imagegen.generate(
-                prompt, str(self.work / f"cover_bg_raw_{prompt_hash}.png"),
-                size=f"{COVER_W}x{COVER_H}")
+                prompt,
+                str(self.work / f"cover_bg_raw_{prompt_hash}.png"),
+                size=f"{COVER_W}x{COVER_H}",
+            )
             from tools.imagogen import scale_to
+
             print("[cover] 图片模型生成竖版背景")
             self.decisions["steps"]["background"] = {"mode": "image_model", "prompt": prompt[:160]}
             return scale_to(raw_bg, str(bg_out), COVER_W, COVER_H)
         except Exception as e:
             print(f"[cover] 图片模型失败（{str(e)[:80]}）：降级用选中帧")
-            self.decisions["steps"]["background"] = {"mode": "frame_fallback",
-                                                     "reason": str(e)[:120]}
+            self.decisions["steps"]["background"] = {
+                "mode": "frame_fallback",
+                "reason": str(e)[:120],
+            }
             return frame_to_vertical(picked_frame, str(bg_out), COVER_W, COVER_H)
 
     # ---- 4. 文案 [LLM决策点：文本] ----
     def _step_copy(self) -> dict:
-        user = json.dumps({"task": "cover_copy", "title": self.title,
-                           "artist": self.artist,
-                           "theme": self.plan.get("theme", ""),
-                           "background": self.research.get("background", ""),
-                           "title_hint": self.research.get("title_hint", "")},
-                          ensure_ascii=False)
+        user = json.dumps(
+            {
+                "task": "cover_copy",
+                "title": self.title,
+                "artist": self.artist,
+                "theme": self.plan.get("theme", ""),
+                "background": self.research.get("background", ""),
+                "title_hint": self.research.get("title_hint", ""),
+            },
+            ensure_ascii=False,
+        )
         if self.llm is not None:
             try:
-                msg = self.llm.chat([
-                    {"role": "system", "content": COPY_PROMPT},
-                    {"role": "user", "content": user}])
+                msg = self.llm.chat(
+                    [{"role": "system", "content": COPY_PROMPT}, {"role": "user", "content": user}]
+                )
                 copy = json.loads(re.search(r"\{.*\}", msg.get("content") or "{}", re.S).group(0))
                 title = str(copy.get("title") or self.title).strip()[:14]
-                subtitle = str(copy.get("subtitle") or f"《{self.title}》 {self.artist}").strip()[:30]
+                subtitle = str(copy.get("subtitle") or f"《{self.title}》 {self.artist}").strip()[
+                    :30
+                ]
                 self.decisions["steps"]["copy"] = {"mode": "llm", "title": title}
                 print(f"[cover] 文案: {title} / {subtitle}")
                 return {"title": title, "subtitle": subtitle}
@@ -242,8 +291,10 @@ class CoverAgent:
     # ---- 6. 封面QC [LLM决策点：视觉] ----
     def _step_qc(self, cover: str, bg: str, copy: dict) -> None:
         if self.vision is None:
-            self.decisions["steps"]["qc"] = {"mode": "skipped",
-                                             "note": "未配置视觉模型，请人工终审"}
+            self.decisions["steps"]["qc"] = {
+                "mode": "skipped",
+                "note": "未配置视觉模型，请人工终审",
+            }
             print("[cover] 未配置视觉模型：请人工终审封面")
             return
         try:
@@ -255,16 +306,23 @@ class CoverAgent:
             if not verdict.get("ok") and self.imagegen is not None:
                 feedback = verdict.get("background_feedback") or "cleaner composition"
                 bg2 = self.work / f"cover_bg_repair_{abs(hash(feedback)) % 99999}.png"
-                prompt = (f"Vertical poster background, no text, no people: "
-                          f"{self.plan.get('theme', 'cinematic scenery')}. "
-                          f"Fix: {feedback}. Cinematic, ultra detailed")
+                prompt = (
+                    f"Vertical poster background, no text, no people: "
+                    f"{self.plan.get('theme', 'cinematic scenery')}. "
+                    f"Fix: {feedback}. Cinematic, ultra detailed"
+                )
                 raw_bg = self.imagegen.generate(prompt, str(bg2), size=f"{COVER_W}x{COVER_H}")
                 from tools.imagogen import scale_to
                 from tools.typography import render_cover as rc
-                bg_std = scale_to(raw_bg, str(self.work / "cover_bg_std_v2.png"),
-                                  COVER_W, COVER_H)
-                cover2 = rc(bg_std, copy["title"], copy["subtitle"],
-                            str(self.work / "cover_final.png"), str(self.work))
+
+                bg_std = scale_to(raw_bg, str(self.work / "cover_bg_std_v2.png"), COVER_W, COVER_H)
+                cover2 = rc(
+                    bg_std,
+                    copy["title"],
+                    copy["subtitle"],
+                    str(self.work / "cover_final.png"),
+                    str(self.work),
+                )
                 self.decisions["steps"]["qc"]["repaired"] = True
                 self.decisions["cover"] = cover2
                 print("[cover] QC 不合格已重生成一次")

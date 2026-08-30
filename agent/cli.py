@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """命令行入口。
 
 用法（在项目根目录）：
@@ -13,6 +12,7 @@
     --trim 50         覆盖规划器：裁掉前 50s 前奏
     --artist NAME     歌手名（LRCLib 检索更准）
 """
+
 from __future__ import annotations
 
 import argparse
@@ -23,8 +23,7 @@ def main(argv=None):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    ap = argparse.ArgumentParser(prog="lyric-video-agent",
-                                 description="歌词视频制作 Agent")
+    ap = argparse.ArgumentParser(prog="lyric-video-agent", description="歌词视频制作 Agent")
     ap.add_argument("title", help="歌曲标题")
     ap.add_argument("--audio", required=True, help="源音频路径（mp3/m4a/flac/wav）")
     ap.add_argument("--artist", default="", help="歌手名")
@@ -38,14 +37,24 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     from .orchestrator import Orchestrator
-    orch = Orchestrator(title=args.title, audio=args.audio, artist=args.artist,
-                        mock=args.mock, yes=args.yes,
-                        skip_generate=args.skip_generate, skip_qc=args.skip_qc,
-                        skip_repair=args.skip_repair, skip_cover=args.skip_cover,
-                        trim=args.trim)
+
+    orch = Orchestrator(
+        title=args.title,
+        audio=args.audio,
+        artist=args.artist,
+        mock=args.mock,
+        yes=args.yes,
+        skip_generate=args.skip_generate,
+        skip_qc=args.skip_qc,
+        skip_repair=args.skip_repair,
+        skip_cover=args.skip_cover,
+        trim=args.trim,
+    )
     report = orch.run()
     print("\n=== 运行摘要 ===")
-    print(f"路由: {report['align'].get('route')}  对齐均值: {report['align'].get('delta_abs_mean')}s")
+    print(
+        f"路由: {report['align'].get('route')}  对齐均值: {report['align'].get('delta_abs_mean')}s"
+    )
     print(f"片段: {report['clips_ready']}/{report['n_clips']}  用时: {report['elapsed_sec']}s")
     print(f"成品: {report['final_video']}")
     return 0

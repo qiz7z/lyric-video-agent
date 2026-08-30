@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ASS 字幕生成。
 
 渲染策略（SOP 唯一权威，用户确认过"完美对应"）：
@@ -9,11 +8,12 @@
   ffmpeg 走 directwrite，中英文家族名都能加载。
 - 两套：验证版（黑底白字 72）+ 正式版（黑字 84 + 浅米描边 &H00D7C8A0）。
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
-OUTLINE_BEIGE = "&H00D7C8A0"   # 冷调浅米：比纯金含蓄（孤寂哀怨风配色验证过）
+OUTLINE_BEIGE = "&H00D7C8A0"  # 冷调浅米：比纯金含蓄（孤寂哀怨风配色验证过）
 
 HEADER = (
     "[Script Info]\nScriptType: v4.00+\nPlayResX: 1920\nPlayResY: 1080\nWrapStyle: 2\n\n"
@@ -39,8 +39,9 @@ def _escape(text: str) -> str:
     return text.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
 
 
-def build_ass(events: list[dict], primary: str, outline: str, fontsize: int,
-              font: str = "STXingkai") -> str:
+def build_ass(
+    events: list[dict], primary: str, outline: str, fontsize: int, font: str = "STXingkai"
+) -> str:
     lines = [HEADER.format(font=font, fontsize=fontsize, primary=primary, outline=outline)]
     for e in events:
         lines.append(
@@ -50,12 +51,13 @@ def build_ass(events: list[dict], primary: str, outline: str, fontsize: int,
     return "".join(lines)
 
 
-def write_two_versions(events: list[dict], workdir: str,
-                       font: str = "STXingkai") -> tuple[str, str]:
+def write_two_versions(
+    events: list[dict], workdir: str, font: str = "STXingkai"
+) -> tuple[str, str]:
     """写验证版 + 正式版两套 ASS，返回路径。"""
     Path(workdir).mkdir(parents=True, exist_ok=True)
-    v = build_ass(events, "&H00FFFFFF", OUTLINE_BEIGE, 72, font)   # 黑底视频用
-    f = build_ass(events, "&H00000000", OUTLINE_BEIGE, 84, font)   # 纯风景画面用
+    v = build_ass(events, "&H00FFFFFF", OUTLINE_BEIGE, 72, font)  # 黑底视频用
+    f = build_ass(events, "&H00000000", OUTLINE_BEIGE, 84, font)  # 纯风景画面用
     vp = f"{workdir}/lyrics_verify.ass"
     fp = f"{workdir}/lyrics_final.ass"
     with open(vp, "w", encoding="utf-8") as fh:

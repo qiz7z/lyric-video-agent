@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Agnes 图片生成客户端（agnes-image-2.x，/v1/images/generations）。
 
 实测行为（2026-08-29 探测）：
@@ -7,9 +6,9 @@
   （实测 3:4 出 864x1152），调用方需自行 lanczos 放大到目标尺寸；
 - 产物是 PNG URL，需二次下载。
 """
+
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 
@@ -17,26 +16,34 @@ import requests
 
 
 class ImageGen:
-    def __init__(self, api_key: str, base_url: str = "https://apihub.agnes-ai.com/v1",
-                 model: str = "agnes-image-2.1-flash", proxies: dict | None = None):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "https://apihub.agnes-ai.com/v1",
+        model: str = "agnes-image-2.1-flash",
+        proxies: dict | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.headers = {"Authorization": f"Bearer {api_key}"}
         self.proxies = proxies or {}
 
-    def generate(self, prompt: str, out_path: str, size: str = "1080x1440",
-                 timeout: int = 180) -> str:
+    def generate(
+        self, prompt: str, out_path: str, size: str = "1080x1440", timeout: int = 180
+    ) -> str:
         """生成一张图并下载到 out_path，返回本地路径。失败抛异常（上层决定降级）。"""
         p = Path(out_path)
         if p.exists() and p.stat().st_size > 50_000:
-            return str(p)                      # 幂等：已存在直接复用
+            return str(p)  # 幂等：已存在直接复用
         for attempt in range(5):
             try:
-                r = requests.post(f"{self.base_url}/images/generations",
-                                  headers=self.headers, timeout=timeout,
-                                  proxies=self.proxies,
-                                  json={"model": self.model, "prompt": prompt,
-                                        "n": 1, "size": size})
+                r = requests.post(
+                    f"{self.base_url}/images/generations",
+                    headers=self.headers,
+                    timeout=timeout,
+                    proxies=self.proxies,
+                    json={"model": self.model, "prompt": prompt, "n": 1, "size": size},
+                )
                 if r.status_code in (429, 503):
                     time.sleep(20 + attempt * 15)
                     continue
@@ -59,17 +66,23 @@ class ImageGen:
 
 def scale_to(bg_path: str, out_path: str, w: int, h: int) -> str:
     """lanczos 放大 + 居中裁切到目标尺寸（图片模型返回尺寸与请求不一致的兜底）。"""
-    from .audio import get_ffmpeg
     import subprocess
+
+    from .audio import get_ffmpeg
+
     # 相对路径一律先解析为绝对：调用方可能用任意 cwd（含 render_cover 的 cwd=workdir）
     bg_path = str(Path(bg_path).resolve())
     out_path = str(Path(out_path).resolve())
-    cmd = [get_ffmpeg(), "-y", "-i", bg_path,
-           "-vf", f"scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,"
-                  f"crop={w}:{h}",
-           out_path]
-    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                       errors="replace")
+    cmd = [
+        get_ffmpeg(),
+        "-y",
+        "-i",
+        bg_path,
+        "-vf",
+        f"scale={w}:{h}:force_original_aspect_ratio=increase:flags=lanczos,crop={w}:{h}",
+        out_path,
+    ]
+    r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         raise RuntimeError(f"scale 失败: {r.stderr[-300:]}")
     return out_path

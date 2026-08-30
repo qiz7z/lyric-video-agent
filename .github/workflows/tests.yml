@@ -17,7 +17,11 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt ruff
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
       - name: Offline unit tests
         # 数据依赖型测试（test_align 的本地人声/真值、test_orchestrator 的
         # NVENC 合成小样）在本机上跑才有数据，CI 缺数据时脚本自动 SKIP。

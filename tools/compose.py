@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """ffmpeg 合成：正式片（xfade 拼接 + 烧字幕 + 原曲立体声）与验证片（黑底白字）。
 
 要点（全部来自实战脚本泛化）：
@@ -8,6 +7,7 @@
 - 编码优先 h264_nvenc（本机 GPU），失败自动回退 libx264；
 - 音频用原曲立体声（SOP：不写 -ac 1）。
 """
+
 from __future__ import annotations
 
 import os
@@ -18,8 +18,9 @@ from .audio import get_ffmpeg
 
 
 def _run(cmd: list[str], cwd: str) -> None:
-    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+    r = subprocess.run(
+        cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
     if r.returncode != 0:
         raise RuntimeError(f"ffmpeg failed: {r.stderr[-600:]}")
 
@@ -40,9 +41,9 @@ def _swap_encoder(cmd: list[str], cq: int) -> list[str]:
             out.extend(["-c:v", "libx264", "-preset", "medium", "-crf", str(cq)])
             i += 1
             while i < len(cmd):
-                if cmd[i] in ("p1", "vbr"):                 # 无值参数
+                if cmd[i] in ("p1", "vbr"):  # 无值参数
                     i += 1
-                elif cmd[i] in nvenc_value_flags:           # 带值参数，连同值跳过
+                elif cmd[i] in nvenc_value_flags:  # 带值参数，连同值跳过
                     i += 2
                 else:
                     break
@@ -63,8 +64,7 @@ def _encode_with_fallback(cmd: list[str], cwd: str, cq: int) -> None:
         _run(_swap_encoder(cmd, cq), cwd)
 
 
-def clip_count_for(duration: float, dur: float = 15.06, xf: float = 0.3,
-                   tail: float = 2.0) -> int:
+def clip_count_for(duration: float, dur: float = 15.06, xf: float = 0.3, tail: float = 2.0) -> int:
     """按覆盖公式求最小段数：N×DUR-(N-1)×XF >= duration+tail。"""
     n = 1
     while n * dur - (n - 1) * xf < duration + tail:
@@ -72,22 +72,60 @@ def clip_count_for(duration: float, dur: float = 15.06, xf: float = 0.3,
     return n
 
 
-def compose_verify(audio: str, ass_path: str, out: str, workdir: str,
-                   fps: int = 30, encoder: str = "nvenc", cq: int = 20) -> str:
+def compose_verify(
+    audio: str,
+    ass_path: str,
+    out: str,
+    workdir: str,
+    fps: int = 30,
+    encoder: str = "nvenc",
+    cq: int = 20,
+) -> str:
     """验证版：黑底 1920x1080 + 白字字幕 + 原曲（供听感确认，便宜可重渲）。"""
-    filt = (f"color=c=black:s=1920x1080:r={fps},format=yuv420p,"
-            f"subtitles={Path(ass_path).name}[v]")
-    cmd = [get_ffmpeg(), "-y", "-f", "lavfi", "-i", f"color=c=black:s=1920x1080:r={fps}",
-           "-i", audio, "-filter_complex", filt, "-map", "[v]", "-map", "1:a",
-           *_encode_args(encoder, cq), "-r", str(fps), "-pix_fmt", "yuv420p",
-           "-c:a", "aac", "-b:a", "192k", "-shortest", str(Path(out).name)]
+    filt = f"color=c=black:s=1920x1080:r={fps},format=yuv420p,subtitles={Path(ass_path).name}[v]"
+    cmd = [
+        get_ffmpeg(),
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=c=black:s=1920x1080:r={fps}",
+        "-i",
+        audio,
+        "-filter_complex",
+        filt,
+        "-map",
+        "[v]",
+        "-map",
+        "1:a",
+        *_encode_args(encoder, cq),
+        "-r",
+        str(fps),
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-shortest",
+        str(Path(out).name),
+    ]
     _encode_with_fallback(cmd, workdir, cq)
     return out
 
 
-def compose_final(clips: list[str], audio: str, ass_path: str, out: str, workdir: str,
-                  dur: float = 15.06, xf: float = 0.3, fps: int = 30,
-                  encoder: str = "nvenc", cq: int = 20) -> str:
+def compose_final(
+    clips: list[str],
+    audio: str,
+    ass_path: str,
+    out: str,
+    workdir: str,
+    dur: float = 15.06,
+    xf: float = 0.3,
+    fps: int = 30,
+    encoder: str = "nvenc",
+    cq: int = 20,
+) -> str:
     """正式版：N 段 xfade + 烧 ASS + 原曲立体声。clips 缺失/过小直接报错（续跑保护）。"""
     n = len(clips)
     for c in clips:
@@ -98,25 +136,49 @@ def compose_final(clips: list[str], audio: str, ass_path: str, out: str, workdir
         inputs += ["-i", c]
     inputs += ["-i", audio]
 
-    pre = [f"[{i}:v]trim=duration={dur},setpts=PTS-STARTPTS,"
-           f"scale=1920:1088:force_original_aspect_ratio=increase,"
-           f"crop=1920:1080,settb=AVTB,fps={fps}[v{i}]" for i in range(n)]
+    pre = [
+        f"[{i}:v]trim=duration={dur},setpts=PTS-STARTPTS,"
+        f"scale=1920:1088:force_original_aspect_ratio=increase,"
+        f"crop=1920:1080,settb=AVTB,fps={fps}[v{i}]"
+        for i in range(n)
+    ]
     filters = pre[:]
     prev = "v0"
     for i in range(1, n):
         off = i * (dur - xf)
         out_label = f"x{i}" if i < n - 1 else "vout"
-        filters.append(f"[{prev}][v{i}]xfade=transition=fade:duration={xf}:offset={off:.3f}[{out_label}]")
+        filters.append(
+            f"[{prev}][v{i}]xfade=transition=fade:duration={xf}:offset={off:.3f}[{out_label}]"
+        )
         prev = out_label
     filters.append("[vout]tpad=stop_mode=clone:stop_duration=2[vf]")
 
     total = n * dur - (n - 1) * xf
-    cmd = [get_ffmpeg(), "-y"] + inputs + [
-        "-filter_complex", ";".join(filters) + f";[vf]subtitles={Path(ass_path).name}[vsub]",
-        "-map", "[vsub]", "-map", f"{n}:a",
-        *_encode_args(encoder, cq), "-r", str(fps), "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart",
-        "-shortest", str(Path(out).name)]
+    cmd = (
+        [get_ffmpeg(), "-y"]
+        + inputs
+        + [
+            "-filter_complex",
+            ";".join(filters) + f";[vf]subtitles={Path(ass_path).name}[vsub]",
+            "-map",
+            "[vsub]",
+            "-map",
+            f"{n}:a",
+            *_encode_args(encoder, cq),
+            "-r",
+            str(fps),
+            "-pix_fmt",
+            "yuv420p",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-movflags",
+            "+faststart",
+            "-shortest",
+            str(Path(out).name),
+        ]
+    )
     print(f"正在合成正式视频（{n} 段，总时长≈{total:.1f}s）...")
     _encode_with_fallback(cmd, workdir, cq)
     size = os.path.getsize(Path(workdir) / Path(out).name) / 1024 / 1024

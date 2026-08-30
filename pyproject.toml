@@ -1,0 +1,33 @@
+[project]
+name = "lyric-video-agent"
+version = "1.0.0"
+description = "多 Agent 协同的歌词视频生产系统：视频 Agent（对轴/生片/质检）× 封面 Agent（调研/生图/文案）"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.24",
+    "requests>=2.28",
+    "mutagen>=1.46",
+    "imageio-ffmpeg>=0.4.8",
+    "librosa>=0.10",
+    "opencc-python-reimplemented>=0.1.7",
+    "ddgs>=9.0",
+]
+
+[project.optional-dependencies]
+demucs = ["demucs>=4.0"]
+dev = ["ruff>=0.16"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "BLE001",  # 盲捕获是有意设计：限流/续传/降级密集的网络代码，见 ARCHITECTURE §7 故障矩阵
+    "E501",    # 行宽交给 ruff format 管理
+]
+
+[tool.ruff.format]
+quote-style = "double"

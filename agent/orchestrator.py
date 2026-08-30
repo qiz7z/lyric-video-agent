@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Orchestrator：确定性流水线骨架 + LLM 决策点（混合式 Agent 架构）。
 
 流水线（每级幂等，文件已存在即跳过 => 天然支持断点续跑）：
@@ -16,10 +15,10 @@
 为什么不全用 LLM 循环驱动（ReAct free-loop）？见 ARCHITECTURE.md——
 成本、延迟、确定性三重考虑；LLM 只出现在需要判断力的两个决策点。
 """
+
 from __future__ import annotations
 
 import json
-import os
 import sys
 import time
 from pathlib import Path
@@ -31,6 +30,7 @@ from tools import compose as compose_mod
 from tools import inspect as inspect_mod
 from tools import lyrics as lyrics_mod
 from tools import videogen as videogen_mod
+
 from . import memory as mem
 from . import planner as planner_mod
 from . import verifier as verifier_mod
@@ -39,10 +39,19 @@ CLIP_DUR, XF, FPS = 15.06, 0.3, 30
 
 
 class Orchestrator:
-    def __init__(self, title: str, audio: str, artist: str = "",
-                 mock: bool = False, yes: bool = False, skip_generate: bool = False,
-                 skip_qc: bool = False, skip_repair: bool = False,
-                 skip_cover: bool = False, trim: float | None = None):
+    def __init__(
+        self,
+        title: str,
+        audio: str,
+        artist: str = "",
+        mock: bool = False,
+        yes: bool = False,
+        skip_generate: bool = False,
+        skip_qc: bool = False,
+        skip_repair: bool = False,
+        skip_cover: bool = False,
+        trim: float | None = None,
+    ):
         self.title, self.artist = title, artist
         self.audio = str(Path(audio).resolve())
         self.mock, self.yes = mock, yes
@@ -59,24 +68,29 @@ class Orchestrator:
     def _make_llm(self):
         if self.mock:
             from .llm import MockLLM
+
             return MockLLM()
         llm_cfg = (self.cfg or {}).get("llm", {})
         if not llm_cfg.get("api_key"):
             print(">> 未配置 LLM key，自动切换 mock 模式（--mock 可显式指定）")
             self.mock = True
             from .llm import MockLLM
+
             return MockLLM()
         from .llm import LLMClient
+
         return LLMClient(llm_cfg["base_url"], llm_cfg["api_key"], llm_cfg["model"])
 
     def _make_vision(self):
         if self.mock:
             from .llm import MockLLM
+
             return MockLLM()
         v = (self.cfg or {}).get("vision", {})
         if not v.get("model") or not v.get("api_key"):
             return None
         from .llm import LLMClient
+
         return LLMClient(v["base_url"], v["api_key"], v["model"])
 
     # ---------- 主流程 ----------
@@ -133,12 +147,14 @@ class Orchestrator:
             print(f"[plan] 复用已有计划: theme={plan.get('theme')}, n_clips={plan.get('n_clips')}")
             return plan
         preview = "\n".join(s for _, s in ly.lines[:12])
-        plan = planner_mod.build_plan(self.llm, self.title, self.artist, duration,
-                                      preview, len(ly.lines))
-        plan_file.write_text(json.dumps(plan, ensure_ascii=False, indent=2),
-                             encoding="utf-8")
-        print(f"[plan] theme={plan['theme']} | {plan['n_clips']} 段 | 字体 {plan['font']}"
-              f" | 裁前奏 {plan['trim_intro_seconds']}s")
+        plan = planner_mod.build_plan(
+            self.llm, self.title, self.artist, duration, preview, len(ly.lines)
+        )
+        plan_file.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(
+            f"[plan] theme={plan['theme']} | {plan['n_clips']} 段 | 字体 {plan['font']}"
+            f" | 裁前奏 {plan['trim_intro_seconds']}s"
+        )
         for i, p in enumerate(plan["prompts"][:3], 1):
             print(f"   prompt{i}: {p[:70]}...")
         return plan
@@ -151,12 +167,15 @@ class Orchestrator:
             report = json.loads((self.work / "report.json").read_text(encoding="utf-8"))
             print(f"[align] 复用已有对齐（route={report.get('route')}）")
             return {"events": events, "report": report}
-        trim = self.trim_override if self.trim_override is not None \
+        trim = (
+            self.trim_override
+            if self.trim_override is not None
             else float(plan.get("trim_intro_seconds") or 0)
+        )
         try:
             vocals = audio_mod.separate_vocals(audio["wav"], str(self.work))
             env = audio_mod.rms_envelope(vocals)
-            print(f"[separate] demucs vocals 就绪")
+            print("[separate] demucs vocals 就绪")
         except Exception as e:
             print(f"[separate] demucs 不可用（{str(e)[:80]}），降级全曲包络")
             env = audio_mod.rms_envelope(audio["wav"])
@@ -167,17 +186,21 @@ class Orchestrator:
             events, report = self._stage_repair(env, ly, audio, events, report, trim)
 
         (self.work / "events.json").write_text(
-            json.dumps(events, ensure_ascii=False, indent=1), encoding="utf-8")
+            json.dumps(events, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
         (self.work / "report.json").write_text(
-            json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
+            json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
         # 对齐重算 => 验证片/成片是派生产物，作废防止复用过期缓存
         for pattern in ("*_字幕验证版.mp4", "*_歌词视频.mp4"):
             for stale in self.work.glob(pattern):
                 stale.unlink()
                 print(f"[align] 已作废过期产物: {stale.name}")
-        print(f"[align] route={report['route']} ratio={report['ratio_onset_to_line']} "
-              f"n={report['n_lyrics']}/{report['n_onsets']} "
-              f"delta_mean={report.get('delta_abs_mean')}s max={report.get('delta_abs_max')}s")
+        print(
+            f"[align] route={report['route']} ratio={report['ratio_onset_to_line']} "
+            f"n={report['n_lyrics']}/{report['n_onsets']} "
+            f"delta_mean={report.get('delta_abs_mean')}s max={report.get('delta_abs_max')}s"
+        )
         return {"events": events, "report": report}
 
     # Stage 5
@@ -186,32 +209,43 @@ class Orchestrator:
         from .repair import RepairLoop
 
         def realign(merge_gap=None, thr_low=None, thr_high=None, trim=None):
-            t = self.trim_override if self.trim_override is not None \
+            t = (
+                self.trim_override
+                if self.trim_override is not None
                 else (trim if trim is not None else 0.0)
-            return align_mod.align(env, ly.lines, audio["duration"], trim=t,
-                                   merge_gap=merge_gap, thr_low=thr_low, thr_high=thr_high)
+            )
+            return align_mod.align(
+                env,
+                ly.lines,
+                audio["duration"],
+                trim=t,
+                merge_gap=merge_gap,
+                thr_low=thr_low,
+                thr_high=thr_high,
+            )
 
         loop = RepairLoop(self.llm, realign, max_rounds=3)
         events, report, history = loop.run(events, report)
         for h in history:
             cand = h.get("candidate")
             extra = f" -> {cand['route']} dmax={cand['delta_abs_max']}" if cand else ""
-            print(f"[repair] r{h['round']}: {h['action']} {h.get('args', '')}"
-                  f"{extra} [{h.get('result', h.get('note', ''))}]")
+            print(
+                f"[repair] r{h['round']}: {h['action']} {h.get('args', '')}"
+                f"{extra} [{h.get('result', h.get('note', ''))}]"
+            )
         print(f"[repair] 最终 route={report['route']}")
         return events, report
 
     def _stage_verify(self, audio: dict, env: dict) -> str:
         out = self.work / f"{mem.safe_name(self.title)}_字幕验证版.mp4"
-        vp, _ = ass_mod.write_two_versions(env["events"], str(self.work),
-                                           font=self._font())
+        vp, _ = ass_mod.write_two_versions(env["events"], str(self.work), font=self._font())
         if out.exists() and out.stat().st_size > 100_000:
             print(f"[verify] 复用已有验证片: {out.name}")
         else:
-            compose_mod.compose_verify(audio["wav"], vp, str(out), str(self.work),
-                                       fps=FPS, encoder="nvenc")
-        print(f"[verify] {out.name} ({out.stat().st_size / 1048576:.1f} MB) "
-              f"-> 请听感确认字幕对齐")
+            compose_mod.compose_verify(
+                audio["wav"], vp, str(out), str(self.work), fps=FPS, encoder="nvenc"
+            )
+        print(f"[verify] {out.name} ({out.stat().st_size / 1048576:.1f} MB) -> 请听感确认字幕对齐")
         return str(out)
 
     def _font(self) -> str:
@@ -239,8 +273,7 @@ class Orchestrator:
         if self.skip_generate:
             print(f"[generate] --skip-generate：使用已有 {len(existing)}/{plan['n_clips']} 段")
             return existing
-        key = ((self.cfg or {}).get("agnes") or {}).get("api_key") or \
-            _read_legacy_key()
+        key = ((self.cfg or {}).get("agnes") or {}).get("api_key") or _read_legacy_key()
         if not key:
             print("[generate] 未配置 Agnes key：跳过生片，仅输出验证片。")
             return existing
@@ -248,15 +281,16 @@ class Orchestrator:
         gen = videogen_mod.VideoGen(key, proxies)
         print(f"[generate] {plan['n_clips']} 段，每段 ~15s@1080p，幂等续传")
         for i, prompt in enumerate(plan["prompts"], 1):
-            gen.generate(prompt, str(clips_dir / f"clip{i:02d}.mp4"),
-                         num_frames=241, frame_rate=16)
+            gen.generate(prompt, str(clips_dir / f"clip{i:02d}.mp4"), num_frames=241, frame_rate=16)
         return self._collect_clips(clips_dir, plan["n_clips"])
 
     @staticmethod
     def _collect_clips(clips_dir: Path, n: int) -> list[str]:
-        return [str(clips_dir / f"clip{i:02d}.mp4")
-                for i in range(1, n + 1)
-                if (clips_dir / f"clip{i:02d}.mp4").exists()]
+        return [
+            str(clips_dir / f"clip{i:02d}.mp4")
+            for i in range(1, n + 1)
+            if (clips_dir / f"clip{i:02d}.mp4").exists()
+        ]
 
     # Stage 8 [LLM决策点2] 视觉自检 + 修复循环
     def _stage_qc(self, plan: dict, clips: list[str]) -> list[str]:
@@ -266,17 +300,19 @@ class Orchestrator:
         if self.vision is None:
             print("[qc] 未配置视觉模型：跳过自动质检，请人工终审画面变形/人物")
             return clips
-        clips_dir = self.work / "clips"
         key = ((self.cfg or {}).get("agnes") or {}).get("api_key") or _read_legacy_key()
         for round_no in range(1, verifier_mod.REGEN_ROUNDS + 1):
             frames_by_clip, prompts_by_clip = {}, {}
             for i, clip in enumerate(clips, 1):
                 if not Path(clip).exists():
                     continue
-                frames = inspect_mod.extract_frames(clip, [5, 11], str(self.work / "qc"),
-                                                    prefix=f"clip{i:02d}")
+                frames = inspect_mod.extract_frames(
+                    clip, [5, 11], str(self.work / "qc"), prefix=f"clip{i:02d}"
+                )
                 frames_by_clip[clip] = frames
-                prompts_by_clip[clip] = plan["prompts"][i - 1] if i - 1 < len(plan["prompts"]) else ""
+                prompts_by_clip[clip] = (
+                    plan["prompts"][i - 1] if i - 1 < len(plan["prompts"]) else ""
+                )
             qc = verifier_mod.qc_clips(self.vision, frames_by_clip, prompts_by_clip)
             bad = verifier_mod.needs_regen(qc)
             print(f"[qc] round{round_no}: {len(qc)} 段受检, {len(bad)} 段需重生成")
@@ -289,10 +325,12 @@ class Orchestrator:
             gen = videogen_mod.VideoGen(key, proxies)
             for r in bad:
                 clip = r["clip"]
-                new_prompt = r.get("revised_prompt") or \
-                    f"{r.get('prompt','pure landscape scenery')}, strict no people, stable geometry, no distortion"
+                new_prompt = (
+                    r.get("revised_prompt")
+                    or f"{r.get('prompt', 'pure landscape scenery')}, strict no people, stable geometry, no distortion"
+                )
                 print(f"[qc] 重新生成 {Path(clip).name}: {r['reason']}")
-                Path(clip).unlink(missing_ok=True)   # 强制重生成（幂等保护先移除）
+                Path(clip).unlink(missing_ok=True)  # 强制重生成（幂等保护先移除）
                 gen.generate(new_prompt, clip, num_frames=241, frame_rate=16)
         return clips
 
@@ -308,10 +346,20 @@ class Orchestrator:
                 print(f"[compose] {msg} 且 --skip-generate：跳过正式合成（验证片已可确认对齐）")
                 return ""
             raise SystemExit(f"{msg}，先补齐 clips 再合成。")
-        _, fp = ass_mod.write_two_versions(env["events"], str(self.work),
-                                           font=plan.get("font", "STXingkai"))
-        compose_mod.compose_final(clips, audio["wav"], fp, str(out), str(self.work),
-                                  dur=CLIP_DUR, xf=XF, fps=FPS, encoder="nvenc")
+        _, fp = ass_mod.write_two_versions(
+            env["events"], str(self.work), font=plan.get("font", "STXingkai")
+        )
+        compose_mod.compose_final(
+            clips,
+            audio["wav"],
+            fp,
+            str(out),
+            str(self.work),
+            dur=CLIP_DUR,
+            xf=XF,
+            fps=FPS,
+            encoder="nvenc",
+        )
         return str(out)
 
     # Stage 9.5 封面 Agent（多 Agent 协同：视频 Agent 产出 -> 封面 Agent 接力）
@@ -319,29 +367,47 @@ class Orchestrator:
         if self.skip_cover:
             print("[cover] --skip-cover：跳过封面 Agent")
             return None
-        from .cover import CoverAgent
         from tools.imagogen import ImageGen
+
+        from .cover import CoverAgent
 
         agnes = (self.cfg or {}).get("agnes") or {}
         key = agnes.get("api_key") or _read_legacy_key()
         # mock 模式强制禁用图片生成（离线测试绝不花钱），走帧降级路径
         imagegen = None
         if key and not self.mock:
-            imagegen = ImageGen(key, base_url=agnes.get("base_url",
-                                                        "https://apihub.agnes-ai.com/v1"),
-                                model=agnes.get("image_model", "agnes-image-2.1-flash"),
-                                proxies=agnes.get("proxies"))
+            imagegen = ImageGen(
+                key,
+                base_url=agnes.get("base_url", "https://apihub.agnes-ai.com/v1"),
+                model=agnes.get("image_model", "agnes-image-2.1-flash"),
+                proxies=agnes.get("proxies"),
+            )
         # 调研函数（真实模式才挂网：信息源聚合 + 网页搜索工具）
         research_fn = search_fn = None
         if not self.mock:
             from tools import research as research_mod
+
             proxies = agnes.get("proxies")
-            research_fn = lambda: research_mod.research_package(
-                self.title, self.artist, audio_path=self.audio, proxies=proxies)
-            search_fn = lambda q: research_mod.search_web(q, proxies=proxies)
-        agent = CoverAgent(title=self.title, artist=self.artist, workdir=str(self.work),
-                           llm=self.llm, vision=self.vision, imagegen=imagegen, plan=plan,
-                           research_fn=research_fn, search_fn=search_fn)
+
+            def research_fn():
+                return research_mod.research_package(
+                    self.title, self.artist, audio_path=self.audio, proxies=proxies
+                )
+
+            def search_fn(q):
+                return research_mod.search_web(q, proxies=proxies)
+
+        agent = CoverAgent(
+            title=self.title,
+            artist=self.artist,
+            workdir=str(self.work),
+            llm=self.llm,
+            vision=self.vision,
+            imagegen=imagegen,
+            plan=plan,
+            research_fn=research_fn,
+            search_fn=search_fn,
+        )
         real_clips = [c for c in clips if Path(c).exists()]
         try:
             if final and Path(final).exists():
@@ -370,21 +436,25 @@ class Orchestrator:
             "mock": self.mock,
         }
         (self.work / "run_report.json").write_text(
-            json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8")
-        mem.append_lesson({
-            "song": self.title,
-            "route": env["report"].get("route"),
-            "delta_mean": env["report"].get("delta_abs_mean"),
-            "delta_max": env["report"].get("delta_abs_max"),
-            "n_clips": plan.get("n_clips"),
-            "note": plan.get("notes", ""),
-        })
+            json.dumps(report, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+        mem.append_lesson(
+            {
+                "song": self.title,
+                "route": env["report"].get("route"),
+                "delta_mean": env["report"].get("delta_abs_mean"),
+                "delta_max": env["report"].get("delta_abs_max"),
+                "n_clips": plan.get("n_clips"),
+                "note": plan.get("notes", ""),
+            }
+        )
         print(f"[done] {final}")
         return report
 
 
 def _load_cfg() -> dict:
     from .llm import load_config
+
     return load_config()
 
 

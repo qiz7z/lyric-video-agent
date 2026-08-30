@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Planner：LLM 依据策略手册与歌曲元信息产出结构化制作计划。
 
 为什么 Planner 输出后还要"确定性校验"（validate_plan）：
@@ -6,13 +5,15 @@
   覆盖公式、prompt 必须过内容安全检查。这层"生成-校验"闭环让规划既灵活又
   不会算错段数导致视频比歌短。
 """
+
 from __future__ import annotations
 
 import json
 import re
 
-from .memory import load_playbook, load_lessons
 from tools.compose import clip_count_for
+
+from .memory import load_lessons, load_playbook
 
 SYSTEM_PROMPT = """你是歌词视频制作 Agent 的规划器。根据【策略手册】与歌曲信息，输出制作计划的 JSON。
 
@@ -34,25 +35,35 @@ JSON 字段：
 }}"""
 
 
-def build_plan(client, title: str, artist: str, duration: float,
-               lyrics_preview: str, n_lines: int) -> dict:
+def build_plan(
+    client, title: str, artist: str, duration: float, lyrics_preview: str, n_lines: int
+) -> dict:
     """调 LLM 产出计划，并做确定性校验/修补。"""
     n_clips = clip_count_for(duration)
     lessons = load_lessons(5)
-    user = json.dumps({
-        "task": "plan",
-        "song": {"title": title, "artist": artist, "duration_sec": round(duration, 1),
-                 "n_lyric_lines": n_lines},
-        "lyrics_preview": lyrics_preview,
-        "n_clips_required": n_clips,
-        "recent_lessons": lessons,
-        "playbook": load_playbook(),
-    }, ensure_ascii=False)
+    user = json.dumps(
+        {
+            "task": "plan",
+            "song": {
+                "title": title,
+                "artist": artist,
+                "duration_sec": round(duration, 1),
+                "n_lyric_lines": n_lines,
+            },
+            "lyrics_preview": lyrics_preview,
+            "n_clips_required": n_clips,
+            "recent_lessons": lessons,
+            "playbook": load_playbook(),
+        },
+        ensure_ascii=False,
+    )
 
-    msg = client.chat([
-        {"role": "system", "content": SYSTEM_PROMPT.format(n_clips=n_clips)},
-        {"role": "user", "content": user},
-    ])
+    msg = client.chat(
+        [
+            {"role": "system", "content": SYSTEM_PROMPT.format(n_clips=n_clips)},
+            {"role": "user", "content": user},
+        ]
+    )
     plan = _extract_json(msg.get("content") or "")
     plan = validate_plan(plan, n_clips, duration)
     return plan
@@ -69,7 +80,9 @@ def _extract_json(text: str) -> dict:
 
 _FORBIDDEN = re.compile(
     r"\b(people|person|man|woman|girl|boy|child|face|portrait|hand|figure|"
-    r"character|human|silhouette|body|crowd|girl)s?\b", re.I)
+    r"character|human|silhouette|body|crowd|girl)s?\b",
+    re.I,
+)
 
 
 def validate_plan(plan: dict, n_clips: int, duration: float) -> dict:
@@ -77,14 +90,18 @@ def validate_plan(plan: dict, n_clips: int, duration: float) -> dict:
     plan.setdefault("theme", "lyric video scenery")
     plan.setdefault("mood", "cinematic")
     plan.setdefault("font", "STXingkai")
-    plan["font"] = plan["font"] if plan["font"] in ("STXingkai", "STXinwei", "STLiti", "FZSTK") \
+    plan["font"] = (
+        plan["font"]
+        if plan["font"] in ("STXingkai", "STXinwei", "STLiti", "FZSTK")
         else "STXingkai"
+    )
     plan["trim_intro_seconds"] = max(0.0, min(float(plan.get("trim_intro_seconds") or 0), 60.0))
 
     prompts = [p for p in plan.get("prompts", []) if isinstance(p, str) and p.strip()]
     if len(prompts) != n_clips:
-        plan["notes"] = (plan.get("notes") or "") + \
-            f" [WARN: planner gave {len(prompts)} prompts, need {n_clips}]"
+        plan["notes"] = (
+            plan.get("notes") or ""
+        ) + f" [WARN: planner gave {len(prompts)} prompts, need {n_clips}]"
     prompts = (prompts + _fallback_prompts(n_clips))[:n_clips]
     # 内容安全：禁人物词，命中则替换为中性风景（不重新调 LLM，省时省钱）
     plan["prompts"] = [_sanitize(p) for p in prompts]

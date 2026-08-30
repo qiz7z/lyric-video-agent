@@ -1,9 +1,9 @@
-# -*- coding: utf-8 -*-
 """修复循环工具的 JSON Schema（OpenAI function calling 格式）。
 
 工具集刻意保持小而真实：每个工具都是编排器里已有的确定性动作，
 LLM 的职责是"诊断报告 -> 选对工具和参数 -> 何时收手"，不是发明新能力。
 """
+
 from __future__ import annotations
 
 RE_ALIGN = {
@@ -11,17 +11,20 @@ RE_ALIGN = {
     "function": {
         "name": "re_align",
         "description": "用新的分段参数重跑人声段检测与对齐。段数(n_onsets)与歌词行数"
-                       "(n_lyrics)接近时，减小 merge_gap 通常能增加段数、有机会升级路由；"
-                       "但路由升级不等于质量提升，系统会用质量门槛把关。",
+        "(n_lyrics)接近时，减小 merge_gap 通常能增加段数、有机会升级路由；"
+        "但路由升级不等于质量提升，系统会用质量门槛把关。",
         "parameters": {
             "type": "object",
             "properties": {
-                "merge_gap": {"type": "number",
-                              "description": "呼吸段合并阈值(秒)，默认0.30，越小段越碎"},
-                "thr_low": {"type": "number",
-                            "description": "能量阈值 P75 系数，默认0.45，越小越灵敏"},
-                "thr_high": {"type": "number",
-                             "description": "能量阈值峰值系数，默认0.10"},
+                "merge_gap": {
+                    "type": "number",
+                    "description": "呼吸段合并阈值(秒)，默认0.30，越小段越碎",
+                },
+                "thr_low": {
+                    "type": "number",
+                    "description": "能量阈值 P75 系数，默认0.45，越小越灵敏",
+                },
+                "thr_high": {"type": "number", "description": "能量阈值峰值系数，默认0.10"},
                 "reason": {"type": "string", "description": "一句话理由"},
             },
         },
@@ -33,7 +36,7 @@ SET_TRIM = {
     "function": {
         "name": "set_trim",
         "description": "裁掉开头纯音乐前奏后重对齐（秒）。适用于长前奏/前奏人声稀疏"
-                       "导致检测混乱的情况。",
+        "导致检测混乱的情况。",
         "parameters": {
             "type": "object",
             "properties": {
@@ -65,7 +68,7 @@ SEARCH_WEB = {
     "function": {
         "name": "search_web",
         "description": "网页搜索：查歌曲的背景故事/创作主题/收录专辑/相关意象。"
-                       "返回 [{title, body, href}] 摘要列表。",
+        "返回 [{title, body, href}] 摘要列表。",
         "parameters": {
             "type": "object",
             "properties": {

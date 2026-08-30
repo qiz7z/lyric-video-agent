@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Agnes AI 视频生成客户端（从实战版 gen_mgd.py 泛化，全链路坑位已封堵）。
 
 四大坑（每个都有对应处理，详见 ARCHITECTURE.md 的故障矩阵）：
@@ -9,6 +8,7 @@
   4. 后台进程被系统回收(~50min)     -> 幂等续跑：>500KB 的成品段直接跳过
 内容策略 400：某些词组合触发，改中性表述重试；避身体特写/夸张情感。
 """
+
 from __future__ import annotations
 
 import json
@@ -20,11 +20,13 @@ from pathlib import Path
 import requests
 
 CREATE_URL = "https://apihub.agnes-ai.com/v1/videos"
-POLL_URL = "https://apihub.agnes-ai.com/agnesapi"   # 根路径！误加 /v1/videos 会 400 死循环
+POLL_URL = "https://apihub.agnes-ai.com/agnesapi"  # 根路径！误加 /v1/videos 会 400 死循环
 
-DEFAULT_NEGATIVE = ("people, person, human, child, man, woman, face, portrait, body, "
-                    "silhouette, figure, character, hands, crowd, animal, text, watermark, "
-                    "logo, low quality, deformed, extra limbs, ugly, oversaturated")
+DEFAULT_NEGATIVE = (
+    "people, person, human, child, man, woman, face, portrait, body, "
+    "silhouette, figure, character, hands, crowd, animal, text, watermark, "
+    "logo, low quality, deformed, extra limbs, ugly, oversaturated"
+)
 
 
 class VideoGen:
@@ -32,18 +34,32 @@ class VideoGen:
         self.headers = {"Authorization": f"Bearer {api_key}"}
         self.proxies = proxies or {}
 
-    def generate(self, prompt: str, out_path: str, width=1920, height=1088,
-                 num_frames=241, frame_rate=16, negative: str = DEFAULT_NEGATIVE,
-                 poll_timeout: int = 1200) -> str:
+    def generate(
+        self,
+        prompt: str,
+        out_path: str,
+        width=1920,
+        height=1088,
+        num_frames=241,
+        frame_rate=16,
+        negative: str = DEFAULT_NEGATIVE,
+        poll_timeout: int = 1200,
+    ) -> str:
         """生成单段视频（幂等：目标文件已存在且 >500KB 则跳过）。返回输出路径。"""
         p = Path(out_path)
         if p.exists() and p.stat().st_size > 500_000:
             print(f"skip {p.name} (exists)")
             return str(p)
 
-        data = {"prompt": prompt, "negative_prompt": negative, "model": "agnes-video-v2.0",
-                "width": width, "height": height,
-                "num_frames": num_frames, "frame_rate": frame_rate}
+        data = {
+            "prompt": prompt,
+            "negative_prompt": negative,
+            "model": "agnes-video-v2.0",
+            "width": width,
+            "height": height,
+            "num_frames": num_frames,
+            "frame_rate": frame_rate,
+        }
         vid = self._submit(data, p.name)
         cdn = self._poll(vid, p.name, poll_timeout)
         self._download(cdn, p)
@@ -54,16 +70,22 @@ class VideoGen:
     def _submit(self, data: dict, tag: str) -> str:
         for i in range(60):
             try:
-                r = requests.post(CREATE_URL, headers=self.headers, json=data,
-                                  timeout=60, proxies=self.proxies)
+                r = requests.post(
+                    CREATE_URL, headers=self.headers, json=data, timeout=60, proxies=self.proxies
+                )
             except Exception as e:
                 print(f"{tag} submit conn err {e!r}, sleep 20s [{i}]")
                 time.sleep(20)
                 continue
             if r.status_code == 200:
                 d = r.json()
-                vid = (d.get("video_id") or d.get("id") or d.get("task_id")
-                       or (d.get("data") or {}).get("video_id") or (d.get("data") or {}).get("id"))
+                vid = (
+                    d.get("video_id")
+                    or d.get("id")
+                    or d.get("task_id")
+                    or (d.get("data") or {}).get("video_id")
+                    or (d.get("data") or {}).get("id")
+                )
                 if vid:
                     print(f"{tag} submitted video_id={vid}")
                     return vid
@@ -83,8 +105,13 @@ class VideoGen:
         while time.time() - t0 < timeout:
             time.sleep(8)
             try:
-                pr = requests.get(POLL_URL, headers=self.headers, params={"video_id": vid},
-                                  timeout=60, proxies=self.proxies)
+                pr = requests.get(
+                    POLL_URL,
+                    headers=self.headers,
+                    params={"video_id": vid},
+                    timeout=60,
+                    proxies=self.proxies,
+                )
             except Exception as e:
                 print(f"{tag} poll conn err {e!r}, sleep 15s")
                 time.sleep(15)
@@ -98,14 +125,21 @@ class VideoGen:
                 time.sleep(10)
                 continue
             st = pr.json()
-            status = (st.get("status") or st.get("state")
-                      or (st.get("data") or {}).get("status")
-                      or (st.get("data") or {}).get("state")
-                      or st.get("internal_status"))
+            status = (
+                st.get("status")
+                or st.get("state")
+                or (st.get("data") or {}).get("status")
+                or (st.get("data") or {}).get("state")
+                or st.get("internal_status")
+            )
             if status in ("succeeded", "completed", "success", "done"):
-                cdn = (st.get("video_url") or st.get("url") or st.get("download_url")
-                       or (st.get("data") or {}).get("video_url")
-                       or (st.get("data") or {}).get("url"))
+                cdn = (
+                    st.get("video_url")
+                    or st.get("url")
+                    or st.get("download_url")
+                    or (st.get("data") or {}).get("video_url")
+                    or (st.get("data") or {}).get("url")
+                )
                 if not cdn:
                     ms = re.findall(r'https?://[^\s"\'\\]+\.mp4[^\s"\'\\]*', json.dumps(st))
                     cdn = ms[0] if ms else None
@@ -123,8 +157,9 @@ class VideoGen:
         for attempt in range(80):
             try:
                 h = {"Range": f"bytes={pos}-"} if pos > 0 else {}
-                with requests.get(url, headers=h, stream=True, timeout=120,
-                                  proxies=self.proxies) as resp:
+                with requests.get(
+                    url, headers=h, stream=True, timeout=120, proxies=self.proxies
+                ) as resp:
                     resp.raise_for_status()
                     ct = resp.headers.get("Content-Type", "")
                     if "video" not in ct and "octet" not in ct and pos == 0:
@@ -156,8 +191,9 @@ class VideoGen:
         raise RuntimeError(f"download failed after 80 retries: {p}")
 
 
-def generate_batch(gen: VideoGen, prompts: list[str], clips_dir: str, prefix: str,
-                   **kw) -> list[str]:
+def generate_batch(
+    gen: VideoGen, prompts: list[str], clips_dir: str, prefix: str, **kw
+) -> list[str]:
     """批量生成（串行 + 每段幂等，后台进程被回收后重跑即可续传）。"""
     out = []
     Path(clips_dir).mkdir(parents=True, exist_ok=True)
