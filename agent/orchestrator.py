@@ -3,6 +3,8 @@
 流水线（每级幂等，文件已存在即跳过 => 天然支持断点续跑）：
   Stage 1 歌词      内嵌 LRC 优先 -> LRCLib 兜底
   Stage 2 规划  [LLM决策点1] 主题/意象/风格/段数（Planner + 确定性校验）
+  Stage 2.5 封面支线 [并行] 规划完成即启动，与 Stage 3-9 重叠执行
+                    （封面主链只依赖歌名/歌手+plan 主题，不依赖视频产物）
   Stage 3 分离      demucs 人声（不可用则降级全曲包络并记入报告）
   Stage 4 对齐      三路路由 -> events.json + report.json
   Stage 5 验证片    黑底白字（便宜可重渲，先确认对齐）
@@ -10,6 +12,7 @@
   Stage 7 生片  [昂贵]  Agnes 逐段生成（限流/续传全封装）
   Stage 8 视觉自检  [LLM决策点2] 抽帧 -> 视觉模型 -> 修复循环（≤2轮）
   Stage 9 合成      xfade + 烧字幕 + 原曲立体声（NVENC，失败回退 libx264）
+  Stage 9.5 汇合    封面支线 join（支线失败时用正片/帧源串行兜底）
   Stage 10 沉淀     run report + lessons 追加（记忆回写）
 
 为什么不全用 LLM 循环驱动（ReAct free-loop）？见 ARCHITECTURE.md——
@@ -101,13 +104,14 @@ class Orchestrator:
         audio = self._stage_audio()
         ly = self._stage_lyrics(audio)
         plan = self._stage_plan(ly, audio["duration"])
+        cover_h = self._stage_cover_start(plan)  # [并行支线] 与 Stage 4-9 重叠
         env = self._stage_align(audio, ly, plan)
         verify = self._stage_verify(audio, env)
         self._stage_gate(verify)
         clips = self._stage_generate(plan)
         clips = self._stage_qc(plan, clips)
         final = self._stage_compose(audio, plan, env, clips)
-        cover = self._stage_cover(plan, final, clips)
+        cover = self._stage_cover_join(cover_h, plan, final, clips)
         report = self._stage_report(plan, env, clips, final, cover, time.time() - t0)
         return report
 
@@ -363,13 +367,45 @@ class Orchestrator:
         return str(out)
 
     # Stage 9.5 封面 Agent（多 Agent 协同：视频 Agent 产出 -> 封面 Agent 接力）
-    def _stage_cover(self, plan: dict, final: str, clips: list[str]) -> dict | None:
+    def _stage_cover_start(self, plan: dict):
+        """[并行支线] 封面 Agent 在规划完成后即启动，与对齐/生片/合成重叠执行。
+
+        依据：封面主链路（调研/生图/文案/排版/QC）只依赖歌名/歌手与 plan 主题，
+        不依赖任何视频产物——背景 prompt 来自调研产出，选帧仅服务帧降级路径。
+        三立论之「生命周期不同」由此在代码层面成立（此前没有正片时封面直接
+        跳过，立论未兑现）。
+
+        mock 模式维持串行：离线测试需要确定性，不引入线程调度随机性。
+        返回 handle（线程 + 结果容器），或 None（跳过 / mock 串行）。
+        """
         if self.skip_cover:
             print("[cover] --skip-cover：跳过封面 Agent")
             return None
-        from tools.imagogen import ImageGen
+        if self.mock:
+            return None
+        import threading
 
         from .cover import CoverAgent
+
+        ctx = self._cover_ctx(plan)
+        holder: dict = {}
+
+        def _worker():
+            try:
+                agent = CoverAgent(**ctx)
+                holder["result"] = agent.run_headless()
+            except Exception as e:
+                print(f"[cover] 并行支线失败（{str(e)[:100]}），汇合点兜底")
+                holder["error"] = str(e)[:150]
+
+        t = threading.Thread(target=_worker, name="cover-agent", daemon=True)
+        t.start()
+        print("[cover] 并行支线已启动（与对齐/生片重叠执行）")
+        return {"thread": t, "holder": holder}
+
+    def _cover_ctx(self, plan: dict) -> dict:
+        """CoverAgent 构造参数（并行支线与串行兜底共用，避免两处漂移）。"""
+        from tools.imagogen import ImageGen
 
         agnes = (self.cfg or {}).get("agnes") or {}
         key = agnes.get("api_key") or _read_legacy_key()
@@ -397,7 +433,7 @@ class Orchestrator:
             def search_fn(q):
                 return research_mod.search_web(q, proxies=proxies)
 
-        agent = CoverAgent(
+        return dict(
             title=self.title,
             artist=self.artist,
             workdir=str(self.work),
@@ -408,17 +444,37 @@ class Orchestrator:
             research_fn=research_fn,
             search_fn=search_fn,
         )
-        real_clips = [c for c in clips if Path(c).exists()]
+
+    def _stage_cover_join(
+        self, handle: dict | None, plan: dict, final: str, clips: list[str]
+    ) -> dict | None:
+        """汇合封面支线。支线成功直接用其结果；失败或 mock 串行走旧路径兜底
+        （此刻正片/clips 可能已就绪，帧降级路径可补）。"""
+        if self.skip_cover:
+            return None
+        if handle is not None:
+            handle["thread"].join(timeout=900)
+            result = handle["holder"].get("result")
+            if result:
+                return result
+        return self._stage_cover(plan, final, clips)
+
+    def _stage_cover(self, plan: dict, final: str, clips: list[str]) -> dict | None:
+        from .cover import CoverAgent
+
         try:
+            agent = CoverAgent(**self._cover_ctx(plan))
+            real_clips = [c for c in clips if Path(c).exists()]
             if final and Path(final).exists():
                 return agent.run(video_path=final)
             if real_clips:
                 return agent.run(clips=real_clips)
+            # 无帧源：headless 主链仍可出封面（图片模型主路径不依赖视频）；
+            # 若连图片模型也没有，run_headless 会抛错并被外层捕获，不阻塞主流程
+            return agent.run_headless()
         except Exception as e:
             print(f"[cover] 封面 Agent 失败（{str(e)[:100]}），不阻塞主流程")
             return None
-        print("[cover] 无视频/clips 源，跳过封面")
-        return None
 
     # Stage 10 沉淀
     def _stage_report(self, plan, env, clips, final, cover, elapsed) -> dict:

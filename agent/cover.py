@@ -81,18 +81,32 @@ class CoverAgent:
 
     # ---- 主流程 ----
     def run(self, video_path: str | None = None, clips: list[str] | None = None) -> dict:
+        """兼容入口：headless 主链 + 可选帧源。
+
+        video_path/clips 只是「帧源」：有图片模型时主链完全不需要它，
+        仅帧降级路径（无 key / 生图失败）消费选帧结果。
+        """
+        return self.run_headless(frame_source=video_path, clips=clips)
+
+    def run_headless(self, frame_source: str | None = None, clips: list[str] | None = None) -> dict:
+        """零视频依赖的封面主链：调研 → (可选选帧) → 背景 → 文案 → 排版 → QC。
+
+        并行化关键：不传帧源时照常产出——背景走图片模型主路径（prompt 来自
+        调研产出），与正片是否存在无关。唯一无法出图的组合是「无图片模型
+        且 无帧源」，此时抛错由编排器在正片就绪后兜底。
+        """
         self._step_research()
-        frames = self._step_candidates(video_path, clips)
-        picked = self._step_pick(frames)
+        frames = self._step_candidates(frame_source, clips) if (frame_source or clips) else []
+        picked = self._step_pick(frames) if frames else ""
         bg = self._step_background(picked)
         copy = self._step_copy()
         cover = self._step_render(bg, copy)
         self._step_qc(cover, bg, copy)
+        self.decisions["cover"] = cover
         (self.work / "cover_decision.json").write_text(
             json.dumps(self.decisions, ensure_ascii=False, indent=1), encoding="utf-8"
         )
         print(f"[cover] 完成: {cover}")
-        self.decisions["cover"] = cover
         return self.decisions
 
     # ---- 0. 调研 [LLM决策点：文本+工具循环] ----
@@ -213,6 +227,10 @@ class CoverAgent:
     def _step_background(self, picked_frame: str) -> str:
         bg_out = self.work / "cover_bg.png"
         if self.imagegen is None:
+            if not picked_frame:
+                raise RuntimeError(
+                    "封面降级需要帧源（无图片模型 key 且无正片/clips），等正片就绪后重跑封面即可"
+                )
             print("[cover] 无图片模型 key：用选中帧裁竖版做背景（降级）")
             self.decisions["steps"]["background"] = {"mode": "frame_fallback"}
             return frame_to_vertical(picked_frame, str(bg_out), COVER_W, COVER_H)
@@ -247,6 +265,13 @@ class CoverAgent:
                 "mode": "frame_fallback",
                 "reason": str(e)[:120],
             }
+            if not picked_frame:
+                # headless 无视频场景：图片模型失败且无帧源可降级，
+                # 抛出清晰错误由外层（run_headless 调用方 / 编排器 join 兜底）捕获
+                raise RuntimeError(
+                    "图片模型生成失败且无帧源可降级（headless 无视频场景）："
+                    "等正片就绪后重跑封面即可"
+                ) from None
             return frame_to_vertical(picked_frame, str(bg_out), COVER_W, COVER_H)
 
     # ---- 4. 文案 [LLM决策点：文本] ----
