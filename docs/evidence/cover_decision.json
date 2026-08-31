@@ -1,0 +1,37 @@
+{
+ "agent": "cover",
+ "title": "梦的光点",
+ "steps": {
+  "research": {
+   "mode": "llm",
+   "searches": [
+    "梦的光点 王心凌 林俊杰 创作背景 主题寓意",
+    "梦的光点 视觉意象 励志 光点 黎明 象征",
+    "梦的光点 王心凌 创作背后 歌迷寄语 励志主题",
+    "梦的光点 王心凌 歌词 意境 黎明 希望 光点"
+   ]
+  },
+  "candidates": 6,
+  "pick": {
+   "mode": "vision",
+   "index": 0
+  },
+  "background": {
+   "mode": "image_model",
+   "prompt": "Vertical poster background art, no text, no people: 励志阳光风景. Mood: hopeful. Composition: soft upper area left clean for a title, rich detail in the middle, cinem"
+  },
+  "copy": {
+   "mode": "llm",
+   "title": "追着那束光出发"
+  },
+  "render": {
+   "output": "cover_final.png"
+  },
+  "qc": {
+   "mode": "vision",
+   "ok": true,
+   "issues": [],
+   "background_feedback": ""
+  }
+ }
+}

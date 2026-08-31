@@ -1,0 +1,130 @@
+{
+  "model": "agnes-2.5-flash",
+  "history": [
+    {
+      "round": 1,
+      "action": "re_align",
+      "args": {
+        "merge_gap": 0.22
+      },
+      "result": "REJECTED: delta_abs_max=15.138s 超过门槛 3.0s",
+      "candidate": {
+        "route": "sequential",
+        "n_onsets": 64,
+        "delta_abs_mean": 2.255,
+        "delta_abs_max": 15.138
+      }
+    },
+    {
+      "round": 2,
+      "action": "set_trim",
+      "args": {
+        "seconds": 20
+      },
+      "result": "REJECTED: 整体质量未优于当前结果",
+      "candidate": {
+        "route": "interp",
+        "n_onsets": 56,
+        "delta_abs_mean": 0.561,
+        "delta_abs_max": 2.498
+      }
+    },
+    {
+      "round": 3,
+      "action": "set_trim",
+      "args": {
+        "seconds": 23
+      },
+      "result": "REJECTED: 整体质量未优于当前结果",
+      "candidate": {
+        "route": "interp",
+        "n_onsets": 56,
+        "delta_abs_mean": 0.561,
+        "delta_abs_max": 2.498
+      }
+    },
+    {
+      "round": 3,
+      "action": "accept",
+      "note": "达到轮数上限，自动接受"
+    }
+  ],
+  "final": {
+    "route": "interp",
+    "ratio_onset_to_line": 0.903,
+    "n_lyrics": 62,
+    "n_onsets": 56,
+    "thr": 0.0712,
+    "params": {
+      "merge_gap": 0.3,
+      "thr_low": 0.45,
+      "thr_high": 0.1
+    },
+    "trim": 0.0,
+    "duration": 231.63,
+    "first_onset": 23.406,
+    "src_counts": {
+      "onset": 50,
+      "interp": 12,
+      "lrc": 0,
+      "mono": 0
+    },
+    "delta_abs_mean": 0.561,
+    "delta_abs_max": 2.498,
+    "long_gaps": [
+      {
+        "after_row": 51,
+        "gap": 9.14
+      }
+    ],
+    "repair_history": [
+      {
+        "round": 1,
+        "action": "re_align",
+        "args": {
+          "merge_gap": 0.22
+        },
+        "result": "REJECTED: delta_abs_max=15.138s 超过门槛 3.0s",
+        "candidate": {
+          "route": "sequential",
+          "n_onsets": 64,
+          "delta_abs_mean": 2.255,
+          "delta_abs_max": 15.138
+        }
+      },
+      {
+        "round": 2,
+        "action": "set_trim",
+        "args": {
+          "seconds": 20
+        },
+        "result": "REJECTED: 整体质量未优于当前结果",
+        "candidate": {
+          "route": "interp",
+          "n_onsets": 56,
+          "delta_abs_mean": 0.561,
+          "delta_abs_max": 2.498
+        }
+      },
+      {
+        "round": 3,
+        "action": "set_trim",
+        "args": {
+          "seconds": 23
+        },
+        "result": "REJECTED: 整体质量未优于当前结果",
+        "candidate": {
+          "route": "interp",
+          "n_onsets": 56,
+          "delta_abs_mean": 0.561,
+          "delta_abs_max": 2.498
+        }
+      },
+      {
+        "round": 3,
+        "action": "accept",
+        "note": "达到轮数上限，自动接受"
+      }
+    ]
+  }
+}
