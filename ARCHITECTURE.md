@@ -21,7 +21,7 @@
 | 7 | Agnes 生片（限流/续传全封装） | |
 | 8 | 视觉质检 + 重生成（≤2 轮） | ✅ 视觉QC |
 | 9 | xfade 合成 + 烧字幕（NVENC→libx264 回退） | |
-| 9.5 | **封面 Agent**：调研→选帧→生图→文案→排版→QC | ✅ 封面×3 |
+| 9.5 | **封面 Agent（并行支线）**：规划完成后即启动线程，与对齐/生片/合成重叠执行；调研→生图→文案→排版→QC，主链不依赖正片 | ✅ 封面×3 |
 | 10 | 运行报告 + lessons 沉淀（记忆回写） | |
 
 ## 1. 为什么不用"LLM 驱动一切"的自由 Agent 循环
@@ -131,8 +131,26 @@
 **拉爆到 15.1s**——路由升级 ≠ 质量提升（段变碎后 DP 锚定反而选错段）。
 所以候选结果必须通过 `delta_abs_max <= 3.0` 且字典序质量分
 （路由优先、偏差次之）不劣化才被采纳；否则 REJECTED、自动回退，并把拒绝
-原因回传给 LLM（提示不要原样重试）。E2E 实测：LLM 首选的 merge_gap=0.22
-被门槛拦截，随后 accept，保留 0.56s 均差的 interp 结果。
+原因回传给 LLM（提示不要原样重试）。
+
+### 真模型实测（`agnes-2.5-flash`，《梦的光点》62 行 / 56 段）
+
+复现：`tests/probe_repair_realmodel.py`。两次运行轨迹不同（LLM 采样随机性），
+但都被门槛收敛到同一结果：
+
+- **运行 A**：`re_align(merge_gap=0.22)` → 升级 sequential、dmax 拉爆到 15.138s
+  → **REJECTED**；再 `set_trim(18)`、`re_align(merge_gap=0.28)` 均"未优于当前"
+  → REJECTED；轮数上限 accept。
+- **运行 B**：连续三次 `set_trim`（20 → 22 → 18），产出指标**完全相同**
+  → 全部 REJECTED；轮数上限 accept。
+
+**读出的三件事**：
+
+1. 门槛确实在兜底——A 的 r1 复现了历史事故（路由升级 ≠ 质量提升）。
+2. LLM 决策有随机性，所以质量门槛不是可选项而是必需品。
+3. **参数抖动失效模式**：B 反复微调 `set_trim` 无效，根因是工具不对症
+   （裁前奏解决不了"段数 < 行数"）+ 拒绝反馈只说"未优于当前"、没提示换工具。
+   → Agent 的失败常常不是模型不聪明，而是**工具语义与反馈粒度不匹配**。
 
 这个环节同时回答了"为什么不直接写死修复策略"：什么参数值得试依赖歌曲形态
 （段/行比、前奏长度），正是 LLM 的判断力价比最高的地方；而门槛保证 LLM
@@ -164,6 +182,11 @@
   检查项、失败原因、修复动作（重生成背景 vs 改写 prompt）均不相同。
 - **生命周期不同**：封面 Agent 可独立对任意已有视频补跑（`--skip-generate`
   也能出封面），不需要重新生片——它是消费上游产物的独立服务，不是流水线的一个阶段。
+  **此立论已在代码层面兑现**：`orchestrator._stage_cover_start` 在规划（Stage 3）
+  完成后立即 `threading.Thread` 拉起封面支线，与对齐/生片/合成（Stage 4-9）重叠执行；
+  封面主链（`run_headless`）只依赖歌名/歌手 + plan 主题，背景 prompt 来自调研产出，
+  与正片是否存在无关。汇合点 `_stage_cover_join` 在报告前 `join()`，支线失败自动回退
+  串行帧降级路径。
 
 协同方式：共享产物（plan.json 的主题/意象、正片候选帧），无中心对话——
 两个 Agent 通过文件系统交换结构化决策（cover_decision.json 记录每步的模式与理由）。
@@ -243,18 +266,24 @@
   - **修复循环**：MockLLM 剧本 = 先 `re_align(merge_gap=0.22)`、被质量门槛
     REJECTED 后 `accept`——离线验证"尝试→被拒→回退→接受"完整路径
   - 真实 NVENC 合成小样（黑底验证片 + 2 段 xfade 正式片）
-- `test_cover.py`：封面 Agent 离线全链——真实成品视频抽帧 + MockLLM 选帧/文案 +
-  帧降级背景 + **真实 drawtext 排版** → 断言 1080×1440 PNG 产物与决策记录
+- `test_cover.py`：封面 Agent 离线全链——`run_headless` 入口两场景：①帧降级
+  （MockLLM + 无图片 key，成品视频抽帧 + **真实 drawtext 排版** → 断言 1080×1440 PNG）；
+  ②无视频产物（真图片 key 时 SKIP 守卫）验证"封面不依赖正片也能出"
+- `probe_cover_headless.py`：真模型探针——仅歌名/歌手/plan 调 `run_headless()`
+  无视频产物，验证并行支线立论；无 Agnes 图片 key 自动 SKIP
 
 MockLLM 让规划/修复/封面链路在没有 key 时也可测通（`--mock`），这是 CI 友好性设计。
 GitHub Actions（`.github/workflows/tests.yml`）在 push 时跑全部离线部分。
 
 ## 10. 已知边界（诚实声明）
 
-- **LLM 实测状态分层**：封面链路已用 Agnes 三真模型实测通过（选帧/文案/QC 全真，
-  产物见 `docs/cover_example.png`）；**Planner 与修复循环的真 LLM 路径仍未实测**
-  ——prompt 未被真实模型拷打过（JSON 漂移、指令遵循、人物词幻觉），接 key 后
-  需先跑 2~3 首歌记录数据。
+- **LLM 实测状态**：修复循环与 Planner 均已完成真模型实测（Agnes `agnes-2.5-flash`，
+  轨迹见 §4 与 `runs/梦的光点/repair_real_trajectory.json`）；封面链路早前已用
+  Agnes 三真模型实测（选帧/文案/QC 全真，产物见 `docs/cover_example.png`）。
+  尚未覆盖的部分：**视觉 QC** 需等生片后验证；真模型对 planner prompt 的
+  JSON 漂移率尚未做多样本统计（目前 1~2 首样本均未出错）。
+- **零 API 成本**：文本/视觉/图像/视频全部使用 Agnes 免费模型
+  （`agnes-2.5-flash` / `agnes-image-2.1-flash` / `agnes-video-v2.0`）。
 - 帧降级封面（无图片模型 key）若源视频带烧录字幕，选中帧会含字幕文字——
   决策记录里已标注模式，需人工终审。
 - 对齐质量依赖 demucs 分离质量；强混响/现场版人声可能切碎，需人工锚点兜底。
