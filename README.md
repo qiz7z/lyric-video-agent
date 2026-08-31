@@ -2,7 +2,7 @@
 
 **输入一首歌，多 Agent 协同产出一条可发布的抖音歌词视频：正片（歌词对轴 + AI 风景 + 视觉自检）+ 竖版封面（选帧 + AI 背景 + AI 文案 + 行楷排版）。**
 
-![tests](https://github.com/YOUR_USERNAME/lyric-video-agent/actions/workflows/tests.yml/badge.svg)
+![tests](https://github.com/qiz7z/lyric-video-agent/actions/workflows/tests.yml/badge.svg)
 
 从 25 首实际交付抖音歌词视频的生产流水线提炼而来的多 Agent 项目：底层工具全部经过
 真实交付验证，LLM 在固定决策点出场，并补上了人工流程里最大的断点——画面质检。
