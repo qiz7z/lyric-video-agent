@@ -140,6 +140,14 @@ def align(
 
     events = _finalize(events, total)
 
+    if trim > 0:
+        # trim 只用于对齐分析（避开长前奏）；下游验证片/合成烧的是未裁剪的
+        # 完整 source.wav，事件须回移到原始时间轴，否则字幕整体提前 trim 秒。
+        events = [
+            {**e, "start": round(e["start"] + trim, 3), "end": round(e["end"] + trim, 3)}
+            for e in events
+        ]
+
     deltas = [abs(e["delta"]) for e in events if e.get("delta") is not None]
     long_gaps = [
         {"after_row": i, "gap": round(events[i + 1]["start"] - events[i]["end"], 2)}

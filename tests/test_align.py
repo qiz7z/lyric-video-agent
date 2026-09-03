@@ -7,6 +7,7 @@
     demucs 从《寂寞沙洲冷_无字幕版.mp4》重建并缓存（GPU ~30s）；连源都没有则 SKIP
 断言：路由应为 sequential；事件单调、不越界、末句驻留 <= HOLD+1s；
       与地面真值逐行起点中位偏差 < 4s（v6.5 定稿基准：0.00s）。
+另含纯合成回归 test_trim_timeline（不依赖数据，CI 也可跑）。
 """
 
 import json
@@ -42,7 +43,33 @@ def ensure_vocals() -> str | None:
     return str(DATA / "vocals.wav")
 
 
+def test_trim_timeline():
+    """--trim 裁前奏只用于对齐分析，事件必须落在原始时间轴——下游验证片/合成
+    烧的是未裁剪的完整 source.wav，事件若留在裁剪时间轴会整体提前 trim 秒。"""
+    import numpy as np
+
+    from tools import align as align_mod
+
+    times = np.arange(0.0, 160.0, 0.1)
+    rms = np.zeros_like(times)
+    for s in range(50, 150, 10):  # 0-50s 静音前奏，之后每 10s 一段 6s 人声
+        rms[(times >= s) & (times <= s + 6)] = 0.5
+    lines = [(50.0 + i * 10, f"第{i}句") for i in range(10)]
+
+    ev0, _ = align_mod.align((rms, times), lines, 160.0, trim=0.0)
+    evT, repT = align_mod.align((rms, times), lines, 160.0, trim=50.0)
+    assert len(evT) == len(lines), f"trim 后事件数不对: {len(evT)}"
+    assert repT["trim"] == 50.0
+    for a, b in zip(ev0, evT, strict=False):
+        assert abs(a["start"] - b["start"]) < 0.05 and abs(a["end"] - b["end"]) < 0.05, (
+            f"trim=50 与 trim=0 事件不一致（应同在原始时间轴）: {b}"
+        )
+    print(f"PASS test_trim_timeline (首句起点 {evT[0]['start']}s，与不裁剪一致)")
+
+
 def main():
+    test_trim_timeline()
+
     lrc = DATA / "寂寞沙洲冷.lrc"
     gt = DATA / "_jm_events.json"
     if not lrc.exists():

@@ -61,6 +61,11 @@ class RepairLoop:
                     }
                 )
                 break
+            # OpenAI 协议：role=tool 消息必须紧跟在带 tool_calls 的 assistant
+            # 消息之后，缺了这条下一轮请求会被服务端以 400 拒绝
+            messages.append(
+                {"role": "assistant", "content": msg.get("content") or None, "tool_calls": calls}
+            )
             call = calls[0]  # 每轮只执行第一个工具调用
             name = call["function"]["name"]
             try:
