@@ -46,22 +46,30 @@ flowchart TD
     P --> O
     O1 -->|通过| Q[9. 合成<br>xfade + 烧字幕 NVENC→libx264 回退]
 
-    Q --> S[10. 运行报告 + lessons 记忆回写]
+    Q --> S[10. 运行报告]
 
     META -.->|并行生成| RC[封面 Agent 支线<br>调研→生图→文案→排版→QC]
     D -.->|主题可选| RC
     RC -.->|汇合报告| S
+
+    S -->|运行结束回写| MEM["记忆层<br/>playbook.md 长期<br/>lessons.jsonl 短期"]
+    MEM -.->|规划前注入| D
 
     style D fill:#7F77DD,stroke:#534AB7,color:#fff
     style J1 fill:#7F77DD,stroke:#534AB7,color:#fff
     style O1 fill:#7F77DD,stroke:#534AB7,color:#fff
     style M fill:#EF9F27,stroke:#854F0B,color:#000
     style RC fill:#1D9E75,stroke:#0F6E56,color:#fff
+    style MEM fill:#185FA5,stroke:#0C447C,color:#fff
 ```
 
-紫色 = LLM 决策点，橙色 = 人工闸门，绿色 = 独立 Agent。LLM 决策点共 8 处：
+蓝色 = 记忆层。紫色 = LLM 决策点，橙色 = 人工闸门，绿色 = 独立 Agent。LLM 决策点共 8 处：
 主链路 3 个（Planner 规划 / 修复循环 / 视觉质检）+ 封面 Agent 内部 5 处（调研 / 选帧 / 背景 / 文案 / QC）；
-除这些决策点外，其余全是确定性代码。
+除这些决策点外，其余全是确定性代码。注意图上的蓝色闭环：每次运行的结论回写记忆层，
+下次规划再注入 Planner——同一首歌只跑一次，但整个系统跨歌曲越跑越准（详见 §8）。
+
+> 完整渲染版架构图：[`docs/architecture_main.png`](docs/architecture_main.png)（1600×3859 高清 PNG，
+> 本地预览器若对 mermaid 换行支持不佳，可直接看这张图）。
 
 **封面 Agent 内部流水线**（详见 §4）：
 
@@ -302,6 +310,37 @@ r3: accept                                                       轮数上限
 
 区分理由：策略编码的是"这个领域的物理规律"，不该让模型每次重学；经验是"上一首
 哪类 prompt 触发了内容策略"这类近期事实，策略手册里不会有。
+
+两层记忆与运行主链的闭环：
+
+```mermaid
+flowchart LR
+    PB["playbook.md<br>长期 · 人工维护<br>领域 SOP 硬约束"]
+    LS["lessons.jsonl<br>短期 · 自动追加<br>滚动窗口"]
+
+    PB -.->|每次规划整篇注入| PL[Planner 规划]
+    LS -.->|load_lessons k=5<br>最近5条 few-shot| PL
+
+    PL --> EX[执行 11 级流水线]
+    EX --> RW["append_lesson 回写<br>route / delta / QC 结果 / 复盘 note"]
+    RW --> LS
+    EX -.->|人工复盘中沉淀出<br>新的领域规律| PB
+
+    style PL fill:#7F77DD,stroke:#534AB7,color:#fff
+    style PB fill:#185FA5,stroke:#0C447C,color:#fff
+    style LS fill:#185FA5,stroke:#0C447C,color:#fff
+```
+
+- **写入侧**：`memory.py append_lesson()` 每次运行结束追加一条 JSON（date/song/route/
+  delta_mean/delta_max/n_clips/note），只增不改——存储层保留全部历史，重启不丢；
+  "短期"体现在**读取窗口**而非存储（存的全是历史，每次只看最近 5 条）。
+- **读取侧**：Planner 的 prompt = playbook 全文 + `load_lessons(k=5)` 最近 5 条做 few-shot，
+  Reflexion 风格的"运行 → 复盘 → 更准"；教训带具体证据（如"某类 prompt 触发内容策略 400"），
+  而不是"下次小心"这类无法执行的泛化。
+- **反哺通道**（上图下方虚线）：playbook 人工维护，但素材来自运行复盘——lessons 里
+  反复验证的规律会被提炼成策略。目前已沉淀 7 条：前 6 条来自 agent 实跑与回归测试，
+  第 7 条（DJ 重鼓点歌外源歌词贴错版本 → 以 mp3 内嵌 LRC 为准）来自人工生产流水线的
+  真实交付教训——本项目本就提炼自 25 首人工流水线，这条通道是同一叙事的延续。
 
 ---
 
