@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:"Microsoft YaHei","PingFang SC",sans-serif;
+    width:1400px; background:#f6f7fb; color:#26262e;
+    padding:22px 40px 18px;
+  }
+  h1 { font-size:30px; letter-spacing:.5px; }
+  .sub { color:#7a7a88; font-size:15px; margin:6px 0 18px; }
+  .sub b { color:#4a4a58; }
+
+  /* ---- 通用 ---- */
+  .lane { background:#fff; border:1px solid #e6e7ef; border-radius:18px;
+          padding:16px 24px; margin-bottom:14px;
+          box-shadow:0 4px 18px rgba(40,40,90,.06); }
+  .lane h2 { font-size:19px; margin-bottom:12px; display:flex; align-items:center; gap:10px; }
+  .lane h2 .n { background:#24946e; color:#fff; width:28px; height:28px; border-radius:50%;
+                display:inline-flex; align-items:center; justify-content:center; font-size:16px; }
+  .card { border-radius:14px; padding:11px 16px; text-align:center; }
+  .llm   { background:#f1effd; border:2px solid #8478dd; }
+  .llm .t { color:#5b4fc7; }
+  .code  { background:#fbfbfd; border:2px solid #c9c9d6; }
+  .gate  { background:#fdf3e3; border:2px solid #e0821e; }
+  .gate .t { color:#b5650f; }
+  .mem   { background:#eaf2fb; border:2px solid #2e6cb4; }
+  .card .t { font-size:17px; font-weight:700; margin-bottom:6px; }
+  .card .d { font-size:13.5px; color:#666672; line-height:1.55; }
+  .tag { display:inline-block; font-size:11.5px; padding:1px 8px; border-radius:8px;
+         margin-bottom:6px; font-weight:700; }
+  .tag.llm { background:#e4e0fa; color:#5b4fc7; }
+  .tag.code { background:#ededf2; color:#666672; }
+  .tag.gate { background:#fbe6c8; color:#b5650f; }
+  .tag.mem { background:#d8e8f8; color:#2e6cb4; }
+
+  .flow { display:flex; align-items:stretch; gap:0; }
+  .flow .card { flex:1; display:flex; flex-direction:column; justify-content:center; }
+  .arr { display:flex; align-items:center; padding:0 6px; color:#9a9aa8; font-size:26px; font-weight:700; }
+
+  /* ---- 两个环 ---- */
+  .loops { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  .loop { background:#fdfdfe; border:2.5px solid #8478dd; border-radius:16px; padding:13px 18px 11px; }
+  .loop h3 { font-size:16.5px; color:#5b4fc7; margin-bottom:14px; }
+  .mini { display:flex; align-items:center; }
+  .mini .card { flex:1; padding:10px 12px; }
+  .mini .card .t { font-size:14.5px; }
+  .mini .card .d { font-size:12.5px; }
+  .mini .arr { font-size:20px; }
+  .gatebar { margin-top:14px; display:flex; align-items:center; gap:12px; }
+  .reflect { margin-top:12px; font-size:13.5px; color:#24946e; display:flex; align-items:center; gap:8px; }
+  .reflect .n { background:#24946e; color:#fff; min-width:22px; height:22px; border-radius:50%;
+                display:inline-flex; align-items:center; justify-content:center; font-size:13px; }
+
+  /* ---- 记忆层 ---- */
+  .memrow { display:flex; align-items:center; gap:16px; }
+  .memrow .card { flex:1; text-align:left; }
+  .back { font-size:13.5px; color:#2e6cb4; background:#eaf2fb; border:1.5px dashed #2e6cb4;
+          border-radius:10px; padding:8px 14px; white-space:nowrap; }
+
+  /* ---- 底部 ---- */
+  .foot { background:#fff; border:1px solid #e6e7ef; border-radius:14px; padding:12px 24px;
+          text-align:center; }
+  .foot .m { font-size:17px; font-weight:700; }
+  .foot .s { font-size:13px; color:#8a8a96; margin-top:5px; }
+  .down { text-align:center; color:#9a9aa8; font-size:13px; margin:5px 0; }
+</style>
+</head>
+<body>
+  <h1>设计范式：Plan-and-Execute 变体 + 受护栏 ReAct + 数据驱动反思</h1>
+  <div class="sub"><b>确定性流水线</b>负责「不会错」 · <b>LLM 决策点</b>负责「有判断」 · <b>人工闸门</b>负责「贵的别白花」</div>
+
+  <!-- ① 主体骨架 -->
+  <div class="lane">
+    <h2><span class="n">①</span>主体骨架 · Plan-and-Execute —— 计划的是<em>创意参数</em>，执行步骤写死</h2>
+    <div class="flow">
+      <div class="card llm">
+        <span class="tag llm">LLM 决策点</span>
+        <div class="t">Planner 规划</div>
+        <div class="d">读歌词情绪 → 出方案<br>主题 / 意象流 / 16 段 prompt</div>
+      </div>
+      <div class="arr">➜</div>
+      <div class="card gate">
+        <span class="tag gate">代码有否决权</span>
+        <div class="t">确定性校验</div>
+        <div class="d">段数 = 覆盖公式<br>人物词 = 正则净化</div>
+      </div>
+      <div class="arr">➜</div>
+      <div class="card code">
+        <span class="tag code">纯代码 · 可回归测试</span>
+        <div class="t">固定执行流水线</div>
+        <div class="d">对齐 → 验证片 → 人工闸门<br>→ 生片 → 合成<br>顺序写死：可测试 · 可幂等续跑 · 成本递增</div>
+      </div>
+      <div class="arr">➜</div>
+      <div class="card code">
+        <span class="tag code">产物</span>
+        <div class="t">成片 + 封面</div>
+        <div class="d">事件轴 / 运行报告<br>（落盘即续跑点）</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="down">▼ &nbsp;执行中出现两类异常，各进入一个<b>受护栏环</b>——LLM 可以试错，门槛保证不会越修越坏&nbsp; ▼</div>
+
+  <!-- ② 两个受护栏环 -->
+  <div class="loops">
+    <div class="loop">
+      <h3>ReAct 修复环 · 字幕对不齐时（≤3 轮）</h3>
+      <div class="mini">
+        <div class="card llm"><div class="t">诊断报告</div><div class="d">路由 / 偏差 / 间奏</div></div>
+        <div class="arr">➜</div>
+        <div class="card llm"><div class="t">function calling</div><div class="d">自主选修复工具<br>re_align / set_trim</div></div>
+        <div class="arr">➜</div>
+        <div class="card gate"><div class="t">质量门槛</div><div class="d">Δmax ≤ 3s 且不劣化<br>否则 REJECTED 回退</div></div>
+      </div>
+      <div class="gatebar"></div>
+      <div class="reflect"><span class="n">①</span>轮内失败反思（秒级）：被拒原因回传 LLM → 换招重试，不原样重试</div>
+    </div>
+    <div class="loop">
+      <h3>视觉 QC 批评环 · 画面有人物/变形时（≤2 轮）</h3>
+      <div class="mini">
+        <div class="card llm"><div class="t">多模态审图</div><div class="d">每段抽 2 帧<br>人物/变形/离题</div></div>
+        <div class="arr">➜</div>
+        <div class="card llm"><div class="t">输出批评</div><div class="d">不只判不合格<br>还给 revised_prompt</div></div>
+        <div class="arr">➜</div>
+        <div class="card code"><div class="t">带批评重生成</div><div class="d">改写后的英文风景 prompt<br>重新生成本段</div></div>
+      </div>
+      <div class="gatebar"></div>
+      <div class="reflect"><span class="n">②</span>生成后批评反思（分钟级）：批评意见驱动改进，而非简单打回</div>
+    </div>
+  </div>
+
+  <div class="down">▼ &nbsp;每次运行的结论不丢弃——沉淀进记忆层，跨歌曲让系统越跑越准&nbsp; ▼</div>
+
+  <!-- ③ 记忆层 -->
+  <div class="lane">
+    <h2><span class="n">③</span>跨次运行反思 · 双层记忆（天级）</h2>
+    <div class="memrow">
+      <div class="card mem">
+        <span class="tag mem">长期策略 · 人工维护</span>
+        <div class="t">playbook.md</div>
+        <div class="d">领域「物理规律」：限流参数 / 字幕渲染禁令 / 路由选择 —— 规划时<b>始终注入</b>，不让模型每次重学</div>
+      </div>
+      <div class="card mem">
+        <span class="tag mem">短期经验 · 自动沉淀</span>
+        <div class="t">lessons.jsonl</div>
+        <div class="d">本次运行的路由 / 偏差 / QC 结果自动追加 → 下次规划<b>注入最近 5 条</b>（哪类 prompt 触发内容策略等近期事实）</div>
+      </div>
+      <div class="back">⟲ 闭环：运行结束写入<br>→ 规划前注入<br><b>反思点 ③ · 天级</b></div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="m">LLM 负责判断 · 代码负责正确性 · 工具让 LLM 能做事 · 闭环让系统能学习</div>
+    <div class="s">缺一不可：无决策点 = 纯脚本 ｜ 无工具调用 = LLM 只是文本处理器 ｜ 无反馈闭环 = 错了不能自修复</div>
+  </div>
+</body>
+</html>
