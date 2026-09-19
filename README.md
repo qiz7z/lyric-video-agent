@@ -71,6 +71,9 @@ flowchart TD
 > 完整渲染版架构图：[`docs/architecture_main.png`](docs/architecture_main.png)（1600×3859 高清 PNG，
 > 本地预览器若对 mermaid 换行支持不佳，可直接看这张图）。
 
+**设计范式图**（概念层：Plan-and-Execute 主体 + 嵌入式受护栏 ReAct + 三个时间尺度的反思）：
+![设计范式图](docs/paradigm.png)
+
 **封面 Agent 内部流水线**（详见 §4）：
 
 ```mermaid
