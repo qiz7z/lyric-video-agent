@@ -34,9 +34,9 @@ def load_config() -> dict:
     agnes = cfg.setdefault("agnes", {})
     agnes.setdefault("api_key", env.get("LVA_AGNES_API_KEY", ""))
     if env.get("LVA_USE_PROXY"):
-        agnes.setdefault(
-            "proxies", {"http": "http://127.0.0.1:7890", "https": "http://127.0.0.1:7890"}
-        )
+        # 代理地址可整体覆盖（LVA_PROXY_URL），默认本机 Clash 混合端口 7897
+        proxy_url = env.get("LVA_PROXY_URL", "http://127.0.0.1:7897")
+        agnes.setdefault("proxies", {"http": proxy_url, "https": proxy_url})
     return cfg
 
 
